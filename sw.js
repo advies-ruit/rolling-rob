@@ -3,8 +3,8 @@
  * so a new build is a new sw.js -- the browser notices that by itself on
  * every start and installs the new version beside the old one. The page then
  * offers "Update" (shell.html); the old version keeps running until then. */
-var VERSION = '0867300eac16';
-var BUILT = '6 Oct 2026 22:54'; /* shown on the start screen */
+var VERSION = '1441f274915a';
+var BUILT = '7 Oct 2026 13:49'; /* shown on the start screen */
 var CACHE = 'rolling-rob-' + VERSION;
 var FILES = ['./', 'index.html', 'index.js', 'index.wasm', 'index.data',
              'icon-192.png', 'icon-512.png', 'manifest.webmanifest'];
