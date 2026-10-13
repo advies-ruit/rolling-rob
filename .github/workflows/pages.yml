@@ -1,0 +1,68 @@
+# Builds the web version on every push. A tag v* (e.g. v1.0) makes a GitHub
+# release of it and publishes the site on GitHub Pages: the newest release at
+# the top, every release in v/<tag>/ (tools/assemble-site.sh), so players can
+# go back to an older version and forward again. Running the workflow by hand
+# publishes the site again from the existing releases.
+# (Settings -> Pages -> Source: GitHub Actions.)
+name: Pages
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 6.0.10
+      - name: Build
+        run: tools/build-web.sh
+      - name: Checksums and zip
+        run: |
+          cd build-web/web && sha256sum * | tee ../SHA256SUMS.txt
+          cd .. && zip -qr Rolling-Rob-Web.zip web
+      - name: Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: gh release create "$GITHUB_REF_NAME" build-web/Rolling-Rob-Web.zip build-web/SHA256SUMS.txt --title "$GITHUB_REF_NAME" --notes "Web build of $GITHUB_SHA"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  site:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble the site from the releases
+        run: tools/assemble-site.sh site
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: site
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

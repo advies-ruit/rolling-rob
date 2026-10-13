@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="en">
+<head>
+<script>
+/* A version chosen on the start screen opens instead of the newest. */
+(function () {
+  try {
+    var pin = localStorage.getItem('rr-version');
+    if (pin && /^[\w.-]+$/.test(pin) && !/\/v\/[^/]+\/(index\.html)?$/.test(location.pathname))
+      location.replace('v/' + pin + '/' + location.search);
+  } catch (e) {}
+})();
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#101410">
+<title>Rolling Rob</title>
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Rolling Rob">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+  :root { --bg: #101410; --fg: #e8e8e8; --gold: #ffd700; --dim: #9a9a9a; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+    font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden;
+    -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+  /* Clear of the notch and the home indicator: on an iPhone home-screen app the
+   * game reaches the screen edge, and a finger held on the bottom strip (the
+   * home gesture) gets cancelled -- the jump button let go by itself. */
+  #stage { position: fixed; display: flex; align-items: center; justify-content: center;
+    top: env(safe-area-inset-top, 0px); right: env(safe-area-inset-right, 0px);
+    bottom: env(safe-area-inset-bottom, 0px); left: env(safe-area-inset-left, 0px); }
+  /* The game is 480x272; the canvas is scaled to the largest fit (fit()). */
+  #canvas { display: block; background: #000; image-rendering: pixelated;
+    touch-action: none; outline: none; -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none; user-select: none; }
+  #overlay { position: fixed; inset: 0; display: flex; flex-direction: column; gap: 14px;
+    align-items: center; justify-content: center; background: rgba(16, 20, 16, .92);
+    text-align: center; padding: 16px; box-sizing: border-box; }
+  #overlay h1 { margin: 0; color: var(--gold); font-size: 30px; letter-spacing: .04em; }
+  #status { color: var(--dim); min-height: 1.4em; }
+  #bar { width: min(320px, 80vw); height: 6px; background: #2a2f2a; border-radius: 3px; overflow: hidden; }
+  #bar > div { height: 100%; width: 0; background: var(--gold); transition: width .2s; }
+  #play { font: inherit; font-size: 18px; font-weight: 600; color: #111; background: var(--gold);
+    border: 0; border-radius: 6px; padding: 12px 32px; cursor: pointer; display: none; }
+  /* Resolution: the game draws at 1x-4x the panel's 480x272, same view. */
+  #res { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; align-items: center; }
+  #res span { color: var(--dim); font-size: 13px; margin-right: 2px; }
+  #res button { font: inherit; font-size: 13px; color: var(--fg); background: #2a2f2a;
+    border: 1px solid #444; border-radius: 4px; padding: 5px 9px; cursor: pointer; }
+  #res button[aria-pressed="true"] { border-color: var(--gold); color: var(--gold); }
+  #help { color: var(--dim); font-size: 13px; max-width: 460px; }
+  #orig { color: var(--dim); font-size: 13px; }
+  #orig a { color: var(--gold); }
+  #help kbd { border: 1px solid #555; border-radius: 3px; padding: 0 4px; font: 12px ui-monospace, monospace; }
+  #offline { color: var(--dim); font-size: 13px; min-height: 1.2em; }
+  #offline button { font: inherit; font-size: 13px; font-weight: 600; color: #111; background: var(--gold);
+    border: 0; border-radius: 4px; padding: 4px 10px; margin-left: 6px; cursor: pointer; }
+  #offline.float { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 6px); left: 50%;
+    transform: translateX(-50%); background: rgba(16, 20, 16, .85); color: var(--fg);
+    padding: 4px 6px 4px 10px; border-radius: 6px; z-index: 5; }
+  #version { color: #6a6f6a; font-size: 12px; min-height: 1em; }
+  #versions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; align-items: center; font-size: 12px; }
+  #versions span { color: #6a6f6a; margin-right: 2px; }
+  #versions button { font: inherit; color: var(--fg); background: #2a2f2a; border: 1px solid #444;
+    border-radius: 4px; padding: 3px 8px; cursor: pointer; }
+  #versions button[aria-pressed="true"] { border-color: var(--gold); color: var(--gold); cursor: default; }
+  .hidden { display: none !important; }
+  /* A phone held upright: the game is landscape, so ask for a turn (and
+   * pause, see orient()). Only once playing: the Play button turns an
+   * Android phone itself. */
+  #rotate { position: fixed; inset: 0; display: none; flex-direction: column; gap: 18px;
+    align-items: center; justify-content: center; background: var(--bg); text-align: center;
+    padding: 24px; box-sizing: border-box; font-size: 18px; }
+  #rotate svg { width: 96px; height: 96px; animation: turn 2.4s ease-in-out infinite; }
+  @keyframes turn { 0%, 30% { transform: rotate(0); } 60%, 100% { transform: rotate(-90deg); } }
+  body.portrait #rotate { display: flex; }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas></div>
+<div id="overlay">
+  <h1>ROLLING ROB</h1>
+  <div id="orig">A port of the original
+    <a href="https://vader.nl/rolling-rob.html" target="_blank" rel="noopener">Rolling Rob on vader.nl</a></div>
+  <div id="bar"><div></div></div>
+  <div id="status">Loading…</div>
+  <button id="play">Play</button>
+  <div id="res" role="group" aria-label="Resolution"><span>Resolution</span></div>
+  <div id="offline"></div>
+  <div id="version"></div>
+  <div id="versions"></div>
+  <div id="help">
+    <kbd>Space</kbd> or JUMP: jump &nbsp;·&nbsp; hold the mouse or a finger on the game: charged launch &nbsp;·&nbsp; arrows: steer<br>
+    <kbd>M</kbd> music on/off &nbsp;·&nbsp; <kbd>N</kbd> next track &nbsp;·&nbsp; <kbd>A</kbd> painted/original look &nbsp;·&nbsp; <kbd>F</kbd> frame counter<br>
+    The title screen has the menu: Play, Tetris and Info. <kbd>Esc</kbd> or Menu in the level picker goes back.<br>
+    The level button (top right) also holds the music, look and frame counter switches.<br>
+    Every resolution shows the same view; higher is sharper. Reload the page to change it.
+  </div>
+</div>
+<div id="rotate">
+  <svg viewBox="0 0 64 64" fill="none" stroke="#ffd700" stroke-width="3" stroke-linejoin="round">
+    <rect x="20" y="6" width="24" height="52" rx="4"/><line x1="29" y1="51" x2="35" y2="51"/>
+  </svg>
+  <div>Turn your phone sideways</div>
+</div>
+<script>
+  /* System information for the app's Info page (src/platform/sim/app.c asks
+   * for one value at a time). Slow probes start once and fill in. */
+  var rrInfo = {};
+  function rrInfoStart() {
+    rrInfo.hz = 0;
+    var n = 0, t0 = 0;
+    function f(t) {
+      if (!t0) t0 = t;
+      n++;
+      if (t - t0 < 1000) requestAnimationFrame(f);
+      else rrInfo.hz = Math.round((n - 1) * 1000 / (t - t0));
+    }
+    requestAnimationFrame(f);
+    if (rrInfo.started) return;
+    rrInfo.started = true;
+    try { navigator.storage.estimate().then(function (e) { rrInfo.storage = e; }); } catch (e) {}
+    try {
+      var c = document.createElement('canvas');
+      var gl = c.getContext('webgl2'), v = 2;
+      if (!gl) { gl = c.getContext('webgl'); v = 1; }
+      if (gl) {
+        rrInfo.gl = 'WebGL ' + v;
+        var d = gl.getExtension('WEBGL_debug_renderer_info');
+        rrInfo.gpu = d ? gl.getParameter(d.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+        /* "ANGLE (Apple, ANGLE Metal Renderer: Apple M2, Unspecified Version)" */
+        var ang = /Renderer: ([^,)]*)/.exec(rrInfo.gpu) || /^ANGLE \([^,]*, ([^,(]*)/.exec(rrInfo.gpu);
+        if (ang) rrInfo.gpu = ang[1].trim();
+        rrInfo.maxtex = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+        var lose = gl.getExtension('WEBGL_lose_context');
+        if (lose) lose.loseContext();
+      }
+    } catch (e) {}
+    try {
+      /* a module with one v128 instruction (wasm-feature-detect) */
+      rrInfo.simd = WebAssembly.validate(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0,
+        10, 10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11]));
+    } catch (e) { rrInfo.simd = false; }
+  }
+  function rrInfoGet(k) {
+    var I = rrInfo, ua = navigator.userAgent, m, v = '';
+    var ipad = /iPad/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    function mb(b) { return b >= 1073741824 ? (b / 1073741824).toFixed(1) + ' GB' : Math.round(b / 1048576) + ' MB'; }
+    switch (k) {
+    case 'version':
+      var el = document.getElementById('version');
+      return el && el.textContent ? el.textContent.replace(/^Version /, '') : 'not saved for offline';
+    case 'screen':
+      var r = window.devicePixelRatio || 1;
+      return r === 1 ? screen.width + 'x' + screen.height + ' px' : screen.width + 'x' + screen.height + ' x' + r +
+        ' = ' + Math.round(screen.width * r) + 'x' + Math.round(screen.height * r);
+    case 'window': return innerWidth + 'x' + innerHeight;
+    case 'hz': return I.hz ? I.hz + ' Hz (measured)' : 'measuring...';
+    case 'gl': return I.gl || 'none';
+    case 'gpu': return I.gpu || '-';
+    case 'maxtex': return I.maxtex ? I.maxtex + ' px' : '-';
+    case 'touch': return navigator.maxTouchPoints ? 'up to ' + navigator.maxTouchPoints + ' points (reported)' : 'none';
+    case 'pointer':
+      var coarse = matchMedia('(any-pointer: coarse)').matches, fine = matchMedia('(any-pointer: fine)').matches;
+      return coarse && fine ? 'touch + mouse' : coarse ? 'touch' : fine ? 'mouse / trackpad' : '-';
+    case 'cores': return (navigator.hardwareConcurrency || '?') + ' (reported)';
+    case 'threads': return self.crossOriginIsolated ? 'possible (isolated page)' : 'no: page not isolated';
+    case 'simd': return I.simd ? 'supported, not used yet' : 'no';
+    case 'devmem': return navigator.deviceMemory ? 'about ' + navigator.deviceMemory + ' GB' : 'not reported';
+    case 'jsheap': return performance.memory ? ', JS ' + mb(performance.memory.usedJSHeapSize) : '';
+    case 'offline':
+      v = navigator.serviceWorker && navigator.serviceWorker.controller ? 'saved, plays offline' : 'not saved';
+      return v + (navigator.onLine ? ' (online)' : ' (offline now)');
+    case 'storage': return I.storage ? mb(I.storage.usage) + ' of ' + mb(I.storage.quota) : '-';
+    case 'audio':
+      var a = Module.SDL2 && Module.SDL2.audioContext;
+      return a ? a.sampleRate + ' Hz, ' + a.state : 'not started';
+    case 'system':
+      v = ipad ? 'iPadOS' : /iPhone/.test(ua) ? 'iOS' : /Android/.test(ua) ? 'Android' : /Mac/.test(ua) ? 'macOS' :
+        /Windows/.test(ua) ? 'Windows' : /Linux/.test(ua) ? 'Linux' : '?';
+      if (navigator.standalone || matchMedia('(display-mode: standalone)').matches) v += ', home-screen app';
+      return v;
+    case 'browser':
+      if ((m = /Edg\/(\d+)/.exec(ua))) return 'Edge ' + m[1];
+      if ((m = /Firefox\/(\d+)/.exec(ua))) return 'Firefox ' + m[1];
+      if ((m = /CriOS\/(\d+)/.exec(ua))) return 'Chrome ' + m[1] + ' (iOS)';
+      if ((m = /Chrome\/(\d+)/.exec(ua))) return 'Chrome ' + m[1];
+      if ((m = /Version\/([\d.]+).*Safari/.exec(ua))) return 'Safari ' + m[1];
+      return ua.slice(0, 40);
+    }
+    return '';
+  }
+  var W = 480, H = 272;
+  var canvas = document.getElementById('canvas');
+  var overlay = document.getElementById('overlay');
+  var statusEl = document.getElementById('status');
+  var barEl = document.querySelector('#bar > div');
+  var playBtn = document.getElementById('play');
+
+  /* Resolution: 1x (the 480x272 LCD the game was made for) up to 4x. The
+   * world view scales with it, so every choice shows and plays the same;
+   * only the sharpness differs. Auto takes the largest that the screen
+   * shows at full detail. Remembered; ?scale=N overrides. */
+  var SCALES = [[0, 'Auto'], [1, '480×272'], [2, '960×544'], [3, '1440×816'], [4, '1920×1088']];
+  var resEl = document.getElementById('res');
+  var scaleChoice = 0;
+  try { scaleChoice = parseInt(localStorage.getItem('rr-scale') || '0', 10) || 0; } catch (e) {}
+  function autoScale() {
+    var s = Math.min(window.innerWidth / W, window.innerHeight / H) * (window.devicePixelRatio || 1);
+    return Math.max(1, Math.min(4, Math.floor(s + 0.25)));
+  }
+  function chosenScale() {
+    var q = parseInt(new URLSearchParams(location.search).get('scale') || '', 10);
+    if (q >= 1 && q <= 4) return q;
+    return scaleChoice || autoScale();
+  }
+  SCALES.forEach(function (o) {
+    var b = document.createElement('button');
+    b.textContent = o[0] === 0 ? 'Auto (' + SCALES[autoScale()][1] + ')' : o[1];
+    if (o[0] === 1) b.title = 'The LCD the game was made for';
+    if (o[0] === 4) b.title = 'Full HD, like the original web game';
+    b.setAttribute('aria-pressed', String(o[0] === scaleChoice));
+    b.addEventListener('click', function () {
+      scaleChoice = o[0];
+      try { localStorage.setItem('rr-scale', String(o[0])); } catch (e) {}
+      resEl.querySelectorAll('button').forEach(function (x, i) {
+        x.setAttribute('aria-pressed', String(SCALES[i][0] === scaleChoice));
+      });
+    });
+    resEl.appendChild(b);
+  });
+
+  /* Largest size that fits, keeping 480:272. On a plain desktop screen
+   * (1 device pixel per CSS pixel) half steps keep the pixels even; on a
+   * retina screen (iPad, iPhone, Mac) that would only waste room -- an iPad's
+   * 1180 wide would shrink to 960 -- so there it fills the width or height. */
+  function fit() {
+    var stage = document.getElementById('stage');
+    var vw = stage.clientWidth || window.innerWidth, vh = stage.clientHeight || window.innerHeight;
+    var s = Math.min(vw / W, vh / H);
+    if (s >= 2 && (window.devicePixelRatio || 1) < 1.5) s = Math.floor(s * 2) / 2;
+    canvas.style.width = Math.floor(W * s) + 'px';
+    canvas.style.height = Math.floor(H * s) + 'px';
+    /* crisp pixels when enlarged, smooth when a big picture is shown smaller */
+    var shown = Math.floor(W * s) * (window.devicePixelRatio || 1);
+    canvas.style.imageRendering = canvas.width && shown < canvas.width ? 'auto' : '';
+  }
+  /* Upright on a touch screen while playing: cover the game and hold it,
+   * music included, until the phone is turned. */
+  var touch = window.matchMedia('(pointer: coarse)').matches;
+  var held = false;
+  function orient() {
+    var upright = touch && clicked && window.innerHeight > window.innerWidth;
+    document.body.classList.toggle('portrait', upright);
+    if (upright === held || !ready) return;
+    held = upright;
+    var ctx = Module.SDL2 && Module.SDL2.audioContext;
+    if (held) {
+      Module._emscripten_pause_main_loop();
+      if (ctx) ctx.suspend();
+    } else {
+      Module._emscripten_resume_main_loop();
+      if (ctx && !document.hidden) ctx.resume();
+    }
+  }
+  function layout() { fit(); orient(); }
+  window.addEventListener('resize', layout);
+  window.addEventListener('orientationchange', function () { setTimeout(layout, 200); });
+
+  var Module = {
+    canvas: canvas,
+    preRun: [function () {
+      /* Best times and the music/look choices live in IndexedDB. */
+      FS.mkdir('/save');
+      FS.mount(IDBFS, {}, '/save');
+      Module.addRunDependency('save');
+      FS.syncfs(true, function () { Module.removeRunDependency('save'); });
+      /* ?volume=0..100 and ?music=0 map to the desktop's environment variables. */
+      var q = new URLSearchParams(location.search);
+      if (q.has('volume')) ENV.ROLLING_ROB_MUSIC_VOLUME = q.get('volume');
+      if (q.get('music') === '0') ENV.ROLLING_ROB_MUSIC = '0';
+    }],
+    postRun: [function () {
+      setInterval(function () { FS.syncfs(false, function () {}); }, 3000);
+      window.addEventListener('pagehide', function () { FS.syncfs(false, function () {}); });
+      fit();
+    }],
+    print: function (t) { console.log(t); },
+    printErr: function (t) { console.warn(t); },
+    setStatus: function (t) {
+      var m = t && t.match(/\((\d+(?:\.\d+)?)\/(\d+)\)/);
+      if (m) {
+        barEl.style.width = (100 * m[1] / m[2]).toFixed(1) + '%';
+        statusEl.textContent = 'Loading… ' + (m[2] / 1048576).toFixed(1) + ' MB';
+      } else if (t) {
+        statusEl.textContent = t;
+      }
+    },
+    monitorRunDependencies: function () {}
+  };
+
+  /* Browsers only start audio after a user gesture, so the game starts from
+   * a button: loading runs in the background, the click starts main(). */
+  var ready = false, clicked = false;
+  Module.noInitialRun = true;
+  Module.onRuntimeInitialized = function () {
+    ready = true;
+    barEl.parentNode.classList.add('hidden');
+    statusEl.textContent = '';
+    playBtn.style.display = 'block';
+    playBtn.focus();
+  };
+  function start() {
+    if (!ready || clicked) return;
+    clicked = true;
+    overlay.classList.add('hidden');
+    /* Phones: full screen, locked sideways. Android allows both from this
+     * tap; iOS Safari allows neither, and orient() asks for a turn instead. */
+    if (touch) {
+      var el = document.documentElement;
+      var fs = el.requestFullscreen || el.webkitRequestFullscreen;
+      if (fs) {
+        try {
+          var p = fs.call(el, { navigationUI: 'hide' });
+          if (p && p.then) p.then(function () {
+            if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(function () {});
+          }).catch(function () {});
+        } catch (e) {}
+      }
+    }
+    fit();
+    canvas.focus();
+    var args = ['--scale', String(chosenScale())];
+    if (new URLSearchParams(location.search).has('fps')) args.push('--fps');
+    Module.callMain(args);
+    fit(); /* SDL sets the canvas' CSS size when it creates the window */
+    /* ?timer=1: pace with setTimeout instead of requestAnimationFrame (for
+     * measuring in a hidden tab, where the browser throttles animation frames). */
+    if (new URLSearchParams(location.search).has('timer')) Module._emscripten_set_main_loop_timing(0, 16);
+    /* iOS mutes web audio while the phone is on silent, unless the page
+     * says it plays media (Safari 17+); older Safari is switched over by a
+     * silent <audio> element playing alongside. */
+    try {
+      if (navigator.audioSession) navigator.audioSession.type = 'playback';
+      else if (/iP(hone|ad|od)/.test(navigator.userAgent)) silentAudio();
+    } catch (e) {}
+    /* SDL's audio context may still be suspended; resume it on this gesture. */
+    try {
+      var ctx = Module.SDL2 && Module.SDL2.audioContext;
+      if (ctx && ctx.state === 'suspended') ctx.resume();
+    } catch (e) {}
+    orient();
+  }
+  function silentAudio() {
+    var n = 4410, b = new Uint8Array(44 + n * 2), v = new DataView(b.buffer);
+    function str(o, t) { for (var i = 0; i < t.length; i++) b[o + i] = t.charCodeAt(i); }
+    str(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); str(8, 'WAVEfmt ');
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, 44100, true); v.setUint32(28, 88200, true); v.setUint16(32, 2, true);
+    v.setUint16(34, 16, true); str(36, 'data'); v.setUint32(40, n * 2, true);
+    var a = new Audio(URL.createObjectURL(new Blob([b], { type: 'audio/wav' })));
+    a.loop = true;
+    a.setAttribute('playsinline', '');
+    var p = a.play();
+    if (p && p.catch) p.catch(function () {});
+  }
+  /* A hidden tab stops the game (no animation frames); stop the music too. */
+  document.addEventListener('visibilitychange', function () {
+    var ctx = Module.SDL2 && Module.SDL2.audioContext;
+    if (!ctx || !clicked) return;
+    if (document.hidden) ctx.suspend(); else if (!held) ctx.resume();
+  });
+  /* iOS may refuse that resume after the screen was off (the context stays
+   * "interrupted" or "suspended" until a gesture): try again on the next touch. */
+  window.addEventListener('touchend', function () {
+    var ctx = Module.SDL2 && Module.SDL2.audioContext;
+    if (ctx && clicked && !held && !document.hidden && ctx.state !== 'running') ctx.resume();
+  }, true);
+  playBtn.addEventListener('click', start);
+  window.addEventListener('keydown', function (e) {
+    if (!clicked && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); start(); }
+  });
+  /* Keep arrow keys and space from scrolling the page. */
+  window.addEventListener('keydown', function (e) {
+    if (clicked && [' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].indexOf(e.key) >= 0) e.preventDefault();
+  });
+  /* Offline: sw.js keeps every file of this version. On each start the
+   * browser fetches sw.js again; a new build installs in the background and
+   * waits -- then "Update" swaps it in and reloads. Best times stay (IndexedDB). */
+  (function () {
+    var el = document.getElementById('offline');
+    if (!('serviceWorker' in navigator) || location.protocol === 'file:') return;
+    function offerUpdate(worker) {
+      el.innerHTML = 'A new version is ready.';
+      var b = document.createElement('button');
+      b.textContent = 'Update';
+      b.addEventListener('click', function () { b.disabled = true; asked = true; worker.postMessage('update'); });
+      el.appendChild(b);
+      /* while playing: a small notice over the game instead of the start screen */
+      if (clicked) { document.body.appendChild(el); el.classList.add('float'); }
+    }
+    /* only after "Update": the very first install also takes over the page
+     * (clients.claim), and that must not reload a game in progress */
+    var reloading = false, asked = false;
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (reloading || !asked) return;
+      reloading = true;
+      try { FS.syncfs(false, function () { location.reload(); }); } catch (e) {}
+      setTimeout(function () { location.reload(); }, 1500);
+    });
+    navigator.serviceWorker.register('sw.js').then(function (reg) {
+      var own = new URL('sw.js', location.href).href; /* rr-version: own worker only */
+      var had = !!navigator.serviceWorker.controller && navigator.serviceWorker.controller.scriptURL === own;
+      function watch(worker) {
+        worker.addEventListener('statechange', function () {
+          if (worker.state === 'installed') {
+            if (had) offerUpdate(worker);
+            else el.textContent = 'Saved for offline play.';
+          }
+        });
+      }
+      if (reg.waiting && had) offerUpdate(reg.waiting);
+      if (reg.installing) {
+        if (!had) el.textContent = 'Saving for offline play…';
+        watch(reg.installing);
+      }
+      reg.addEventListener('updatefound', function () {
+        if (!had) el.textContent = 'Saving for offline play…';
+        watch(reg.installing);
+      });
+      if (had && !reg.waiting && !reg.installing) el.textContent = 'Playable offline.';
+      /* which build this is: the running worker knows its version and date */
+      var tag = document.getElementById('version');
+      navigator.serviceWorker.addEventListener('message', function (e) {
+        if (e.data && e.data.built) tag.textContent = 'Version ' + e.data.built + ' (' + e.data.version.slice(0, 7) + ')';
+      });
+      function ask() { if (navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage('version'); }
+      ask();
+      navigator.serviceWorker.addEventListener('controllerchange', ask);
+      /* a phone app can stay open for days: look again every hour and on return */
+      setInterval(function () { reg.update().catch(function () {}); }, 3600000);
+      document.addEventListener('visibilitychange', function () {
+        if (!document.hidden) reg.update().catch(function () {});
+      });
+    }).catch(function () {});
+  })();
+  /* Versions: every release stays on the site under v/<tag>/, listed in
+   * versions.json (newest first). A chosen version stays -- also when the
+   * app is opened from the home screen -- until "Newest" is chosen again. */
+  (function () {
+    var box = document.getElementById('versions');
+    var m = /\/v\/([^/]+)\/(index\.html)?$/.exec(location.pathname);
+    var here = m ? decodeURIComponent(m[1]) : null, root = m ? '../../' : './';
+    function go(tag) {
+      try {
+        if (tag) localStorage.setItem('rr-version', tag);
+        else localStorage.removeItem('rr-version');
+      } catch (e) {}
+      try { FS.syncfs(false, function () {}); } catch (e) {}
+      location.href = root + (tag ? 'v/' + encodeURIComponent(tag) + '/' : '') + location.search;
+    }
+    function add(label, tag, on) {
+      var b = document.createElement('button');
+      b.textContent = label;
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      if (!on) b.addEventListener('click', function () { go(tag); });
+      box.appendChild(b);
+    }
+    fetch(root + 'versions.json', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (list) {
+      if (!list.length || (list.length === 1 && here === null)) return;
+      var s = document.createElement('span');
+      s.textContent = 'Version';
+      box.appendChild(s);
+      add('Newest', null, here === null);
+      list.forEach(function (v) { add(v.tag, v.tag, here === v.tag); });
+    }).catch(function () {
+      if (here !== null) add('Back to newest', null, false); /* offline: no list */
+    });
+  })();
+  window.onerror = function (msg) { statusEl.textContent = 'Error: ' + msg; overlay.classList.remove('hidden'); };
+  fit();
+</script>
+{{{ SCRIPT }}}
+</body>
+</html>
