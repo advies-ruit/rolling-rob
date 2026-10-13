@@ -32,7 +32,20 @@ typedef struct {
     img_t dev;
 } sprite_t;
 
-#define ROB_FRAMES   64
+#define ROB_FRAMES   64 /* at most; the rendered sheet holds this many */
+/* How many Rob turns: ROLLING_ROB_ROB_FRAMES, 8, 16, 32 or 64. Rob turns fast
+ * and at 60 fps the difference between 16 and 64 is hard to see; fewer
+ * frames load faster and give a slightly stepped, hand-made roll. */
+static int rob_frames(void)
+{
+    static int n = 0;
+    if(n == 0) {
+        const char * e = getenv("ROLLING_ROB_ROB_FRAMES");
+        n = e ? atoi(e) : 16;
+        if(n != 8 && n != 16 && n != 32 && n != 64) n = 16;
+    }
+    return n;
+}
 #define TREE_SIZES   25
 #define MAX_COLS   2048
 
@@ -51,6 +64,10 @@ static const uint32_t s_accent[RR_LEVEL_COUNT] = {
 static enum { ART_UNKNOWN, ART_READY, ART_OFF } s_state;
 static bool s_user_off = true; /* the original look is the default; A, the picker or the saved choice switch */
 static char s_dir[512];
+/* The rendered set (made separately): the directory next to s_dir with "-3d"
+ * added. It holds what it renders; everything else comes from s_dir. */
+static bool s_rendered;
+static char s_dir3[520];
 
 static int s_level = -1;
 static float s_scale;
@@ -64,8 +81,23 @@ static bool s_565;
 static uint16_t * s_bg16, * s_tex16;
 static bool s_backdrop;     /* the picture is on a hardware layer: draw the key instead */
 static unsigned s_bg_gen;   /* counts loaded pictures */
-static sprite_t s_rob, s_boss, s_enemy, s_mine, s_ufo, s_tree, s_deco;
-static img_t s_rob_frames[ROB_FRAMES];
+static sprite_t s_tree, s_deco;
+static bool s_land3d_loaded; /* the landscape loaded is the rendered one */
+/* The figures, one set per look (painted, rendered), so switching between
+ * the two looks keeps both and costs nothing after the first time; the
+ * landscape is the same in both. Rob and Julian are rebuilt only when the
+ * file they come from or the size changes (a level may have its own,
+ * lit for it, in art-3d/level-N). */
+typedef struct {
+    int level;
+    float scale;
+    sprite_t rob, boss, enemy, mine, ufo;
+    img_t rob_frames[ROB_FRAMES];
+    char rob_path[640], boss_path[640];
+    float rob_scale, rob_radius;
+} figs_t;
+static figs_t s_figs[2] = { { .level = -1 }, { .level = -1 } };
+#define FIG (&s_figs[s_rendered ? 1 : 0])
 static img_t s_trees[TREE_SIZES];
 static bool s_have_deco;
 
@@ -106,11 +138,52 @@ static bool img_alloc(img_t * i, int w, int h)
     return true;
 }
 
+/* The rendered look puts the rendered figures on the painted landscape: the
+ * painted pictures carry more with the fire's light than the rendered ones,
+ * the rendered figures are better than the painted. The rendered landscape
+ * (art-3d bg/tex/tree/deco) stays available with ROLLING_ROB_3D_LANDSCAPE=1. */
+static bool land3d(void)
+{
+    static int on = -1;
+    if(on < 0) on = getenv("ROLLING_ROB_3D_LANDSCAPE") != NULL;
+    return on;
+}
+
+static bool is_landscape(const char * name)
+{
+    return !strncmp(name, "bg-", 3) || !strncmp(name, "tex-", 4) || !strncmp(name, "tree-", 5) ||
+           !strncmp(name, "deco-", 5);
+}
+
+static int s_loading = -1;    /* the level being loaded, for art-3d/level-N */
+
+/* Opens an art file the way the current look finds it; `path` gets the
+ * file's path (or the last one tried). */
+static FILE * open_art(const char * name, char path[640])
+{
+    FILE * f = NULL;
+    if(s_rendered && (land3d() || !is_landscape(name))) {
+        /* figures lit for this level first (art-3d/level-N, N as in bg-N) */
+        if(s_loading >= 0) {
+            snprintf(path, 640, "%s/level-%d/%s", s_dir3, s_loading, name);
+            f = fopen(path, "rb");
+        }
+        if(f == NULL) {
+            snprintf(path, 640, "%s/%s", s_dir3, name);
+            f = fopen(path, "rb");
+        }
+    }
+    if(f == NULL) {
+        snprintf(path, 640, "%s/%s", s_dir, name);
+        f = fopen(path, "rb");
+    }
+    return f;
+}
+
 static uint8_t * read_file(const char * name, size_t * len)
 {
     char path[640];
-    snprintf(path, sizeof(path), "%s/%s", s_dir, name);
-    FILE * f = fopen(path, "rb");
+    FILE * f = open_art(name, path);
     if(f == NULL) {
         fprintf(stderr, "art: cannot open %s\n", path);
         return NULL;
@@ -382,15 +455,16 @@ static bool build_rob(float radius)
     memset(&cell, 0, sizeof(cell));
     float ball = (2.0f * radius + 4.0f) * s_scale; /* the original's outline included */
     int c = iround(ball / (2.0f * ROB_R));
-    if(!resample(&s_rob.src, c, c, &cell)) return false;
+    if(!resample(&FIG->rob.src, c, c, &cell)) return false;
     float px = ROB_CX * (float)c, py = ROB_CY * (float)c;
     float rx = fmaxf(px, (float)c - px), ry = fmaxf(py, (float)c - py);
     int d = 2 * (int)ceilf(sqrtf(rx * rx + ry * ry)) + 2;
     bool ok = true;
-    for(int k = 0; k < ROB_FRAMES && ok; k++) {
-        img_t * f = &s_rob_frames[k];
+    const int n = rob_frames();
+    for(int k = 0; k < n && ok; k++) {
+        img_t * f = &FIG->rob_frames[k];
         ok = img_alloc(f, d, d);
-        float a = 2.0f * (float)M_PI * (float)k / ROB_FRAMES, ca = cosf(a), sa = sinf(a);
+        float a = 2.0f * (float)M_PI * (float)k / (float)n, ca = cosf(a), sa = sinf(a);
         for(int y = 0; ok && y < d; y++) {
             for(int x = 0; x < d; x++) {
                 float dx = (float)x + 0.5f - (float)d * 0.5f, dy = (float)y + 0.5f - (float)d * 0.5f;
@@ -399,6 +473,32 @@ static bool build_rob(float radius)
         }
     }
     img_free(&cell);
+    return ok;
+}
+
+/* Rob from the rendered set: rob-3d.png holds ROB_FRAMES cells, 8 a row,
+ * each Rob turned by k / ROB_FRAMES of a turn with the light kept where it
+ * is (turning one picture turns its highlights too). The ball's radius is
+ * ROB3D_R of a cell, its centre the cell's. */
+#define ROB3D_R 0.25f
+static bool build_rob3d(const img_t * sheet, float radius)
+{
+    int cell = sheet->w / 8;
+    if(cell < 8 || sheet->h < cell * (ROB_FRAMES / 8)) return false;
+    float ball = (2.0f * radius + 4.0f) * s_scale;
+    int d = iround(ball / (2.0f * ROB3D_R));
+    if(d < 4) d = 4;
+    img_t one;
+    memset(&one, 0, sizeof(one));
+    bool ok = img_alloc(&one, cell, cell);
+    const int n = rob_frames();
+    for(int k = 0; ok && k < n; k++) {
+        int c = k * (ROB_FRAMES / n); /* every (64/n)th cell of the sheet */
+        int cx = (c % 8) * cell, cy = (c / 8) * cell;
+        for(int y = 0; y < cell; y++) memcpy(one.px + (size_t)y * cell, sheet->px + (size_t)(cy + y) * sheet->w + cx, (size_t)cell * 4);
+        ok = resample(&one, d, d, &FIG->rob_frames[k]);
+    }
+    img_free(&one);
     return ok;
 }
 
@@ -414,22 +514,32 @@ static bool tree_here(int level, int i)
     return level == 0 ? i % 4 == 2 : i % 5 == 2;
 }
 
-static void free_level(void)
+static void free_landscape(void)
 {
     img_free(&s_bg);
     img_free(&s_tex);
     free(s_bg16);
     free(s_tex16);
     s_bg16 = s_tex16 = NULL;
-    sprite_t * lv[] = { &s_enemy, &s_mine, &s_ufo, &s_tree, &s_deco };
+    sprite_t * lv[] = { &s_tree, &s_deco };
     for(unsigned i = 0; i < sizeof(lv) / sizeof(lv[0]); i++) {
         img_free(&lv[i]->src);
         img_free(&lv[i]->dev);
     }
     for(int i = 0; i < TREE_SIZES; i++) img_free(&s_trees[i]);
-    for(int i = 0; i < ROB_FRAMES; i++) img_free(&s_rob_frames[i]);
-    img_free(&s_rob.dev);
-    img_free(&s_boss.dev);
+    s_level = -1;
+}
+
+static void free_figs(figs_t * F)
+{
+    sprite_t * lv[] = { &F->rob, &F->boss, &F->enemy, &F->mine, &F->ufo };
+    for(unsigned i = 0; i < sizeof(lv) / sizeof(lv[0]); i++) {
+        img_free(&lv[i]->src);
+        img_free(&lv[i]->dev);
+    }
+    for(int i = 0; i < ROB_FRAMES; i++) img_free(&F->rob_frames[i]);
+    F->rob_path[0] = F->boss_path[0] = 0;
+    F->level = -1;
 }
 
 static double now_s(void)
@@ -503,15 +613,27 @@ static void key_fill(uint32_t * d, int n)
     for(; i < n; i++) d[i] = GFX_KEY;
 }
 
-/* Loads the level's pictures and scales everything for the view scale. */
-static bool load_level(int level, float scale, float rob_radius)
+/* Where a load spends its time, printed with the total. */
+typedef struct { double t0, tl; char s[256]; int n; } steps_t;
+static void step(steps_t * t, const char * what)
 {
-    double t0 = now_s();
-    free_level();
-    s_level = -1;
+    double now = now_s();
+    if(t->n < (int)sizeof(t->s) - 32)
+        t->n += snprintf(t->s + t->n, sizeof(t->s) - (size_t)t->n, " %s %.0f", what, (now - t->tl) * 1000.0);
+    t->tl = now;
+}
+
+/* Loads the level's landscape (background, ground, trees) and scales it for
+ * the view scale. */
+static bool load_landscape(int level, float scale)
+{
+    steps_t t = { .t0 = now_s() };
+    t.tl = t.t0;
+    free_landscape();
     s_scale = scale;
+    s_loading = level;
+    s_land3d_loaded = s_rendered && land3d();
     char name[32];
-    const char * sfx = level == 0 ? "-0" : "";
     img_t raw;
     memset(&raw, 0, sizeof(raw));
 
@@ -522,19 +644,15 @@ static bool load_level(int level, float scale, float rob_radius)
     float bw = (level == 0 ? 2280.0f : 2240.0f) * scale;
     bool ok = resample(&raw, iround(bw), iround(bw * (float)raw.h / (float)raw.w), &s_bg);
     img_free(&raw);
+    step(&t, "bg");
 
     /* One ground tile spans 1024 world units. */
     snprintf(name, sizeof(name), "tex-%d.jpg", level);
     ok = ok && load_jpg(name, &raw);
     ok = ok && resample(&raw, iround(1024.0f * scale), iround(1024.0f * scale), &s_tex);
     img_free(&raw);
+    step(&t, "tex");
 
-    snprintf(name, sizeof(name), "enemy-%d.png", level);
-    ok = ok && load_sprite(name, &s_enemy, true) && fit(&s_enemy, 84, 84, &s_enemy.dev);
-    snprintf(name, sizeof(name), "mine%s.png", sfx);
-    ok = ok && load_sprite(name, &s_mine, true) && fit(&s_mine, 66, 66, &s_mine.dev);
-    snprintf(name, sizeof(name), "ufo%s.png", sfx);
-    ok = ok && load_sprite(name, &s_ufo, true) && fit(&s_ufo, 112, 72, &s_ufo.dev);
     snprintf(name, sizeof(name), "tree-%d.png", level);
     ok = ok && load_sprite(name, &s_tree, true);
     for(int i = 0; ok && i < TREE_SIZES; i++) {
@@ -543,20 +661,80 @@ static bool load_level(int level, float scale, float rob_radius)
     }
     s_have_deco = level == 0;
     if(s_have_deco) ok = ok && load_sprite("deco-0.png", &s_deco, true) && fit(&s_deco, 52, 44, &s_deco.dev);
-
-    if(s_rob.src.px == NULL) ok = ok && load_sprite("rob.png", &s_rob, false);
-    if(s_boss.src.px == NULL) ok = ok && load_sprite("boss.png", &s_boss, true);
-    ok = ok && build_rob(rob_radius) && fit(&s_boss, 140, 150, &s_boss.dev);
+    step(&t, "trees");
     if(ok && s_565) {
         s_bg16 = make565(&s_bg);
         s_tex16 = make565(&s_tex);
         ok = s_bg16 && s_tex16;
+        step(&t, "565");
     }
     if(!ok) return false;
 
     s_level = level;
     s_bg_gen++;
-    fprintf(stderr, "art: level %d ready at scale %.3f in %.0f ms\n", level, (double)scale, (now_s() - t0) * 1000.0);
+    fprintf(stderr, "art: level %d landscape at scale %.3f in %.0f ms (ms:%s)\n", level, (double)scale,
+            (now_s() - t.t0) * 1000.0, t.s);
+    return true;
+}
+
+/* Loads the level's figures for the current look into its set. */
+static bool load_figs(int level, float scale, float rob_radius)
+{
+    steps_t t = { .t0 = now_s() };
+    t.tl = t.t0;
+    figs_t * F = FIG;
+    F->level = -1;
+    s_loading = level;
+    char name[32], path[640];
+    const char * sfx = level == 0 ? "-0" : "";
+    sprite_t * lv[] = { &F->enemy, &F->mine, &F->ufo };
+    for(unsigned i = 0; i < sizeof(lv) / sizeof(lv[0]); i++) {
+        img_free(&lv[i]->src);
+        img_free(&lv[i]->dev);
+    }
+
+    snprintf(name, sizeof(name), "enemy-%d.png", level);
+    bool ok = load_sprite(name, &F->enemy, true) && fit(&F->enemy, 84, 84, &F->enemy.dev);
+    snprintf(name, sizeof(name), "mine%s.png", sfx);
+    ok = ok && load_sprite(name, &F->mine, true) && fit(&F->mine, 66, 66, &F->mine.dev);
+    snprintf(name, sizeof(name), "ufo%s.png", sfx);
+    ok = ok && load_sprite(name, &F->ufo, true) && fit(&F->ufo, 112, 72, &F->ufo.dev);
+    step(&t, "sprites");
+
+    /* Julian */
+    FILE * f = open_art("boss.png", path);
+    if(f) fclose(f);
+    if(ok && (strcmp(path, F->boss_path) || F->scale != scale)) {
+        ok = load_sprite("boss.png", &F->boss, true) && fit(&F->boss, 140, 150, &F->boss.dev);
+        snprintf(F->boss_path, sizeof(F->boss_path), "%s", ok ? path : "");
+        step(&t, "julian");
+    }
+
+    /* Rob: the rendered sheet, or the painted picture turned */
+    const char * rob = s_rendered ? "rob-3d.png" : "rob.png";
+    f = open_art(rob, path);
+    if(f) fclose(f);
+    if(ok && (strcmp(path, F->rob_path) || F->rob_scale != scale || F->rob_radius != rob_radius)) {
+        bool built = false;
+        if(s_rendered) {
+            img_t sheet;
+            memset(&sheet, 0, sizeof(sheet));
+            built = load_png(rob, &sheet) && build_rob3d(&sheet, rob_radius);
+            img_free(&sheet);
+        }
+        if(!built) built = load_sprite("rob.png", &F->rob, false) && build_rob(rob_radius);
+        ok = built;
+        snprintf(F->rob_path, sizeof(F->rob_path), "%s", ok ? path : "");
+        F->rob_scale = scale;
+        F->rob_radius = rob_radius;
+        step(&t, "rob");
+    }
+    if(!ok) return false;
+
+    F->level = level;
+    F->scale = scale;
+    fprintf(stderr, "art: level %d %s figures in %.0f ms (ms:%s)\n", level, s_rendered ? "rendered" : "painted",
+            (now_s() - t.t0) * 1000.0, t.s);
     return true;
 }
 
@@ -585,6 +763,27 @@ bool rr_art_enabled(void)
     return !s_user_off;
 }
 
+static void find_dir(void);
+
+bool rr_art_rendered_available(void)
+{
+    if(s_state == ART_UNKNOWN) find_dir();
+    if(s_state != ART_READY) return false;
+    char path[600];
+    snprintf(path, sizeof(path), "%s/rob-3d.png", s_dir3);
+    FILE * f = fopen(path, "rb");
+    if(f) fclose(f);
+    return f != NULL;
+}
+
+void rr_art_set_rendered(bool on)
+{
+    if(on == s_rendered) return;
+    s_rendered = on; /* each look keeps its own figures; the landscape is shared */
+}
+
+bool rr_art_rendered(void) { return s_rendered; }
+
 static void find_dir(void)
 {
     const char * env = getenv("ROLLING_ROB_ART");
@@ -593,6 +792,7 @@ static void find_dir(void)
         return;
     }
     snprintf(s_dir, sizeof(s_dir), "%s", env && *env ? env : "art");
+    snprintf(s_dir3, sizeof(s_dir3), "%s-3d", s_dir);
     s_state = ART_READY;
 }
 
@@ -663,13 +863,18 @@ bool rr_art_prepare(const rr_view_t * v, float view_scale, int w, int h)
     gfx_backdrop.px = NULL;
     if(s_state == ART_UNKNOWN) find_dir();
     if(s_state != ART_READY || s_user_off || w > MAX_COLS) return false;
-    if(v->level != s_level || view_scale != s_scale) {
-        if(!load_level(v->level, view_scale, (float)v->rob.radius)) {
-            fprintf(stderr, "art: drawing the original look instead\n");
-            free_level();
-            s_state = ART_OFF;
-            return false;
-        }
+    bool ok = true;
+    if(v->level != s_level || view_scale != s_scale || s_land3d_loaded != (s_rendered && land3d()))
+        ok = load_landscape(v->level, view_scale);
+    if(ok && (FIG->level != v->level || FIG->scale != view_scale))
+        ok = load_figs(v->level, view_scale, (float)v->rob.radius);
+    if(!ok) {
+        fprintf(stderr, "art: drawing the original look instead\n");
+        free_landscape();
+        free_figs(&s_figs[0]);
+        free_figs(&s_figs[1]);
+        s_state = ART_OFF;
+        return false;
     }
     s_drawn = true;
     s_w = w;
@@ -838,6 +1043,9 @@ void rr_art_ground(gfx_ctx_t * g, const rr_view_t * v)
     int t = s_tex.w;
     int32_t lip = (int32_t)(20.0f * s_scale * 256.0f);  /* 5 logical pixels */
     int32_t band = (int32_t)(32.0f * s_scale * 256.0f); /* then 3 darker ones */
+    /* The rendered set follows the original: no grass lip, the ridge's dark
+     * outline (draw.c: 4 wide, 40 % black, half of it inside the ground). */
+    if(s_rendered && land3d()) lip = band = (int32_t)(3.0f * s_scale * 256.0f) > 256 ? (int32_t)(3.0f * s_scale * 256.0f) : 256;
     uint32_t acc = s_accent[v->level];
     uint32_t ar = (acc >> 16) & 0xFF, ag = (acc >> 8) & 0xFF, ab = acc & 0xFF;
     for(int y = first_row(g, 0); y < gfx_row_end(g); y += row_step(g)) {
@@ -866,7 +1074,8 @@ void rr_art_ground(gfx_ctx_t * g, const rr_view_t * v)
             if(bottom <= e) continue;
             uint32_t c = tex16 ? from565(tex16[s_tx[x]]) : tex[s_tx[x]];
             int32_t depth = mid - e;
-            if(depth < lip) {
+            if(depth < lip && s_rendered && land3d()) c = 0xFF000000u | ((c & 0x00FEFEFEu) >> 1);
+            else if(depth < lip) {
                 /* A textured lip follows the collidable surface exactly. */
                 uint32_t grain = (c >> 8) & 0xFF, r, gg, b;
                 if(v->level == 0) {
@@ -899,28 +1108,29 @@ void rr_art_ground(gfx_ctx_t * g, const rr_view_t * v)
 
 void rr_art_monster(gfx_ctx_t * g, const rr_view_t * v, const rr_obstacle_t * obs)
 {
-    blit_bottom(g, &s_enemy.dev, obs->x + obs->w * 0.5f, obs->y + obs->h + 4.0f);
+    blit_bottom(g, &FIG->enemy.dev, obs->x + obs->w * 0.5f, obs->y + obs->h + 4.0f);
 }
 
 void rr_art_mine(gfx_ctx_t * g, const rr_view_t * v, const rr_mine_t * m)
 {
-    blit_centre(g, &s_mine.dev, m->x, m->y);
+    blit_centre(g, &FIG->mine.dev, m->x, m->y);
 }
 
 void rr_art_saucer(gfx_ctx_t * g, const rr_view_t * v, const rr_saucer_t * s)
 {
-    blit_centre(g, &s_ufo.dev, s->x, s->y - 8.0f);
+    blit_centre(g, &FIG->ufo.dev, s->x, s->y - 8.0f);
 }
 
 void rr_art_julian(gfx_ctx_t * g, const rr_view_t * v, const rr_julian_t * j)
 {
-    blit_bottom(g, &s_boss.dev, j->x + RR_JULIAN_W * 0.5f, j->y + RR_JULIAN_H + 4.0f);
+    blit_bottom(g, &FIG->boss.dev, j->x + RR_JULIAN_W * 0.5f, j->y + RR_JULIAN_H + 4.0f);
 }
 
 void rr_art_rob(gfx_ctx_t * g, const rr_view_t * v)
 {
     float a = fmodf(v->rob.rotation, 2.0f * (float)M_PI);
     if(a < 0) a += 2.0f * (float)M_PI;
-    int k = iround(a / (2.0f * (float)M_PI) * ROB_FRAMES) % ROB_FRAMES;
-    blit_centre(g, &s_rob_frames[k], v->rob.x, v->rob.y);
+    const int n = rob_frames();
+    int k = iround(a / (2.0f * (float)M_PI) * (float)n) % n;
+    blit_centre(g, &FIG->rob_frames[k], v->rob.x, v->rob.y);
 }

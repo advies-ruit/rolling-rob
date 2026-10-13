@@ -53,6 +53,8 @@ void fps_overlay_create(lv_display_t * disp, uint32_t (*frames)(void))
     lv_timer_create(update_timer_cb, 1000, NULL);
 }
 
+lv_obj_t * fps_overlay_label(void) { return s_label; }
+
 void fps_overlay_set_visible(bool on)
 {
     if(s_label && lv_obj_is_hidden(s_label) == on) lv_obj_set_hidden(s_label, !on);

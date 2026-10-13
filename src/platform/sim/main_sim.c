@@ -11,11 +11,13 @@
  * Headless mode (no window, for automated screenshots / CI):
  *   rolling_rob_sim --headless --frames 120 --out frame.raw [--level 3]
  *                   [--touch F0,F1,X,Y]... [--key NAME,F0,F1]...
+ *                   [--app [--app-key K,F]...]  (the app's menu; key K at frame F)
  * writes the final frame as raw 32-bit BGRA (little-endian ARGB8888).
  */
 
 #include "lvgl.h"
 #include "game.h"
+#include "rob3d_view.h"
 #include "hud.h"
 #include "fps_overlay.h"
 #include "bot.h"
@@ -78,20 +80,17 @@ static void poll_keyboard(void)
     game_input_key(RR_KEY_RIGHT, key_down(keys, SDL_SCANCODE_RIGHT));
     game_input_key(RR_KEY_UP,    key_down(keys, SDL_SCANCODE_UP));
     game_input_key(RR_KEY_DOWN,  key_down(keys, SDL_SCANCODE_DOWN));
-    bool enter = key_down(keys, SDL_SCANCODE_RETURN) || key_down(keys, SDL_SCANCODE_KP_ENTER);
-    game_input_key(RR_KEY_SPACE, key_down(keys, SDL_SCANCODE_SPACE) || (game_title_active() && enter));
+    game_input_key(RR_KEY_SPACE, key_down(keys, SDL_SCANCODE_SPACE)); /* Enter: the app's menu */
     game_input_key(RR_KEY_ART,   key_down(keys, SDL_SCANCODE_A));
     game_input_key(RR_KEY_MUSIC, key_down(keys, SDL_SCANCODE_M));
     game_input_key(RR_KEY_NEXT_TRACK, key_down(keys, SDL_SCANCODE_N));
     game_input_key(RR_KEY_FPS, key_down(keys, SDL_SCANCODE_F));
 }
 
-/* Over the demo, Tetris and the info page only F reaches the game (the
- * frame counter); the other presses are dropped, or a Space from Tetris
- * would start the game on the way back to the menu. */
-static void poll_fps_key(void)
+/* Over the menu, a game or a page the presses are dropped, or a Space from
+ * Tetris would start the game on the way back. */
+static void drop_keys(void)
 {
-    game_input_key(RR_KEY_FPS, key_down(SDL_GetKeyboardState(NULL), SDL_SCANCODE_F));
     memset(s_key_latch, 0, sizeof(s_key_latch));
 }
 
@@ -142,6 +141,13 @@ static void fill_backdrop(void)
     }
 }
 
+static void canvas_band_sink(uint32_t * band, int stride_px, int y0, int rows, void * user)
+{
+    lv_draw_buf_t * buf = user;
+    for(int r = 0; r < rows; r++)
+        memcpy(buf->data + (size_t)(y0 + r) * buf->header.stride, band + (size_t)r * stride_px, (size_t)buf->header.w * 4);
+}
+
 static void frame(uint32_t dt_ms)
 {
     if(!s_no_hud && hud_is_modal_open()) return; /* level picker open: game frozen */
@@ -172,11 +178,52 @@ static int finger_slot(SDL_FingerID id)
 
 static Uint32 s_window_id; /* LVGL's only window (it has no getter for it) */
 
+/* SDL's keys as the app's (app.h): letters, digits, and the few others it uses. */
+static int app_key_of(SDL_Scancode sc)
+{
+    if(sc >= SDL_SCANCODE_A && sc <= SDL_SCANCODE_Z) return 'a' + (sc - SDL_SCANCODE_A);
+    if(sc >= SDL_SCANCODE_1 && sc <= SDL_SCANCODE_9) return '1' + (sc - SDL_SCANCODE_1);
+    if(sc == SDL_SCANCODE_0) return '0';
+    switch(sc) {
+        case SDL_SCANCODE_ESCAPE: return APP_KEY_ESC;
+        case SDL_SCANCODE_BACKSPACE: return APP_KEY_BACKSPACE;
+        case SDL_SCANCODE_RETURN:
+        case SDL_SCANCODE_KP_ENTER: return APP_KEY_ENTER;
+        case SDL_SCANCODE_SPACE: return APP_KEY_SPACE;
+        case SDL_SCANCODE_LEFT: return APP_KEY_LEFT;
+        case SDL_SCANCODE_RIGHT: return APP_KEY_RIGHT;
+        case SDL_SCANCODE_UP: return APP_KEY_UP;
+        case SDL_SCANCODE_DOWN: return APP_KEY_DOWN;
+        case SDL_SCANCODE_LCTRL:
+        case SDL_SCANCODE_RCTRL: return APP_KEY_CTRL;
+        case SDL_SCANCODE_LSHIFT:
+        case SDL_SCANCODE_RSHIFT: return APP_KEY_SHIFT;
+        default: return 0;
+    }
+}
+
+bool app_key_held(int k)
+{
+    const Uint8 * kb = SDL_GetKeyboardState(NULL);
+    if(k >= 'a' && k <= 'z') return kb[SDL_SCANCODE_A + (k - 'a')];
+    switch(k) {
+        case APP_KEY_SPACE: return kb[SDL_SCANCODE_SPACE];
+        case APP_KEY_LEFT: return kb[SDL_SCANCODE_LEFT];
+        case APP_KEY_RIGHT: return kb[SDL_SCANCODE_RIGHT];
+        case APP_KEY_UP: return kb[SDL_SCANCODE_UP];
+        case APP_KEY_DOWN: return kb[SDL_SCANCODE_DOWN];
+        default: return false;
+    }
+}
+
 static int SDLCALL event_filter(void * user, SDL_Event * e)
 {
     LV_UNUSED(user);
-    if(e->type == SDL_KEYDOWN && !e->key.repeat && e->key.keysym.scancode < SDL_NUM_SCANCODES)
+    if(e->type == SDL_KEYDOWN && !e->key.repeat && e->key.keysym.scancode < SDL_NUM_SCANCODES) {
         s_key_latch[e->key.keysym.scancode] = true;
+        int k = app_key_of(e->key.keysym.scancode);
+        if(k) app_key(k);
+    }
     /* A click with no mouse movement before it (a synthetic click, or the
      * very first one on a web page) can arrive without a window, and LVGL
      * drops events it cannot match to its window. There is only one. */
@@ -216,11 +263,16 @@ static void render_timer_cb(lv_timer_t * timer)
     uint32_t dt_ms = last_ms == 0 ? 16 : now_ms - last_ms;
     last_ms = now_ms;
     if(app_game_input()) poll_keyboard();
-    else poll_fps_key();
+    else drop_keys();
     if(app_game_runs()) frame(dt_ms);
     app_tick(dt_ms);
+    if(app_draws_frame()) {
+        /* the 3D demo: its bands into the game's canvas */
+        app_render_bands((int)s_draw_buf->header.w, (int)s_draw_buf->header.h, canvas_band_sink, s_draw_buf);
+        lv_obj_invalidate(s_canvas);
+    }
     music_update();
-    if(s_fps_overlay) fps_overlay_set_visible(s_fps || game_fps_enabled());
+    if(s_fps_overlay) fps_overlay_set_visible(s_fps || app_fps_wanted());
 }
 
 int rr_sdl_accelerated = 1; /* LV_SDL_ACCELERATED, see lv_conf.h */
@@ -337,7 +389,7 @@ static int run_windowed(float zoom, int level)
     }
     fps_overlay_create(disp, NULL);
     s_fps_overlay = true;
-    fps_overlay_set_visible(s_fps || game_fps_enabled());
+    fps_overlay_set_visible(s_fps || app_fps_wanted());
 
     lv_timer_create(render_timer_cb, refr_ms, NULL);
 #ifdef __EMSCRIPTEN__
@@ -363,6 +415,12 @@ typedef struct { rr_key_t key; int f0, f1; } key_evt_t;
 static touch_evt_t s_touches[MAX_SCRIPT];
 static int s_touch_n;
 static key_evt_t s_keys[MAX_SCRIPT];
+/* --app: the app's menu around the game, headless too; --app-key K,F sends
+ * key K (a letter, or esc enter space left right up down) at frame F */
+static bool s_app_headless;
+typedef struct { int key, f; } app_key_evt_t;
+static app_key_evt_t s_app_keys[MAX_SCRIPT];
+static int s_app_key_n;
 static int s_key_n;
 
 static uint32_t s_fake_tick;
@@ -431,6 +489,7 @@ static int run_headless(int frames, const char * out_path, int level)
 
     create_canvas();
     game_init(w, h, VIEW_SCALE);
+    rob3d_view_init(); /* ROLLING_ROB_3D=1: the frames in 3D */
     if(s_seed >= 0) {
         srand((unsigned)s_seed);
         game_goto_level(level); /* regenerate deterministically */
@@ -445,7 +504,9 @@ static int run_headless(int frames, const char * out_path, int level)
         game_set_music_available(true);
         hud_enable_art_tile(true);
     }
+    if(s_app_headless) app_menu_button();
     if(!s_no_hud) hud_create(lv_screen_active());
+    if(s_app_headless) app_init(disp, w, h, 1);
     if(s_fps) fps_overlay_create(disp, NULL);
 
     FILE * rec = NULL;
@@ -462,7 +523,13 @@ static int run_headless(int frames, const char * out_path, int level)
             game_input_key(s_keys[i].key, f >= s_keys[i].f0 && f < s_keys[i].f1);
         }
         if(s_bot && !bot_step(f)) { frame(16); lv_timer_handler(); lv_refr_now(disp); break; }
-        frame(16);
+        if(s_app_headless) {
+            for(int i = 0; i < s_app_key_n; i++)
+                if(s_app_keys[i].f == f) app_key(s_app_keys[i].key);
+            if(app_game_runs()) frame(16);
+            app_tick(16);
+        }
+        else frame(16);
         lv_timer_handler();
         /* Force a full refresh so the buffer always holds the complete frame. */
         lv_refr_now(disp);
@@ -539,6 +606,18 @@ int main(int argc, char ** argv)
         else if(!strcmp(argv[i], "--touch") && i + 1 < argc && s_touch_n < MAX_SCRIPT) {
             touch_evt_t t;
             if(sscanf(argv[++i], "%d,%d,%d,%d", &t.f0, &t.f1, &t.x, &t.y) == 4) s_touches[s_touch_n++] = t;
+        }
+        else if(!strcmp(argv[i], "--app")) s_app_headless = true;
+        else if(!strcmp(argv[i], "--app-key") && i + 1 < argc && s_app_key_n < MAX_SCRIPT) {
+            char name[16];
+            int f;
+            if(sscanf(argv[++i], "%15[a-z0-9],%d", name, &f) == 2) {
+                int k = name[1] == 0 ? name[0] : !strcmp(name, "esc") ? APP_KEY_ESC : !strcmp(name, "enter") ? APP_KEY_ENTER
+                        : !strcmp(name, "space") ? APP_KEY_SPACE : !strcmp(name, "left") ? APP_KEY_LEFT
+                        : !strcmp(name, "right") ? APP_KEY_RIGHT : !strcmp(name, "up") ? APP_KEY_UP
+                        : !strcmp(name, "down") ? APP_KEY_DOWN : 0;
+                if(k) s_app_keys[s_app_key_n++] = (app_key_evt_t){ k, f };
+            }
         }
         else if(!strcmp(argv[i], "--key") && i + 1 < argc && s_key_n < MAX_SCRIPT) {
             char name[16];

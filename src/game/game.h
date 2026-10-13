@@ -44,6 +44,21 @@ void game_render(lv_obj_t * canvas);
 /* Renders the frame in bands straight into `sink` (see rr_draw_frame_bands),
  * with no full-frame canvas; the game's text is blended into the bands. */
 void game_render_bands(int w, int h, int band_rows, rr_band_sink_t sink, void * user);
+/* Text the last game_render_bands had no picture for yet (it is made before
+ * the next one): a single frame that must be complete draws again. */
+bool game_render_bands_missed(void);
+
+/* Another renderer for the game's frame (the 3D view, src/app/rob3d_view.c).
+ * It gets the view draw.c gets, and the entity arrays are there to read; it
+ * must change nothing, so the play stays the same. NULL = draw.c. Both
+ * game_render and game_render_bands use it; draw.c's in-world text (FINISH,
+ * JULIAN, CP1) is not drawn then. */
+typedef void (*game_renderer_t)(int w, int h, const rr_view_t * v, float view_scale, rr_band_sink_t sink, void * user);
+void game_set_renderer(game_renderer_t r);
+/* For that renderer's sink: draw.c's overlay -- the charge meter and the
+ * touch buttons -- into rows y0 .. y0 + rows - 1 of its w x h frame. Any
+ * thread, bands in any order, only while the renderer runs. */
+void game_overlay_band(uint32_t * band, int stride_px, int y0, int rows, int w, int h);
 
 /* x/y are in screen pixels, as reported by the input driver. */
 void game_input_touch(int32_t slot, bool pressed, int32_t x, int32_t y);
@@ -82,14 +97,30 @@ int32_t game_get_best_run_ms(void);           /* 0 = no complete run yet */
 /* Music. The game only keeps the choice (saved as "music 0 1|0" next to the
  * times, default on); playing it is the platform's job. A platform that can
  * play music calls game_set_music_available(true), which also shows the
- * music tile in the level picker. game_music_take_next() reports a "next
- * track" request (N key, the picker tile's long press) once. */
+ * music tile in the level picker. game_music_take_skip() reports a "next /
+ * previous track" request (N key, the picker tile, the page) once.
+ *
+ * The rest of the player's settings are kept here too: the volume in
+ * percent (saved as "volume 0 v" once chosen; until then the platform's
+ * default) and the order (saved as "order 0 n"). What plays is
+ * reported back by the platform for the page to show. */
 void game_set_music_available(bool available);
 bool game_music_available(void);
 bool game_music_enabled(void);
 void game_set_music_enabled(bool on);         /* saves the choice */
-void game_music_request_next(void);
-bool game_music_take_next(void);
+void game_music_request_next(void);           /* = game_music_request_skip(1) */
+void game_music_request_skip(int dir);        /* +1 next, -1 previous (or this one again) */
+int game_music_take_skip(void);               /* 0: none */
+
+typedef enum { RR_MUSIC_SHUFFLE, RR_MUSIC_IN_ORDER, RR_MUSIC_REPEAT, RR_MUSIC_ORDERS } rr_music_order_t;
+int game_music_volume(void);                  /* 0..100: the choice, else the default */
+void game_set_music_volume(int percent);      /* saves the choice */
+void game_set_music_volume_default(int percent); /* the platform's, until one is chosen */
+rr_music_order_t game_music_order(void);
+void game_set_music_order(rr_music_order_t o); /* saves the choice */
+/* The platform: the track playing ("" for none) and how far it is. */
+void game_music_set_playing(const char * title, int32_t pos_ms);
+const char * game_music_playing(int32_t * pos_ms);
 
 /* The frame counter: the game keeps the choice (saved as "fps 0 1|0"), the
  * platform shows it. */
@@ -98,7 +129,7 @@ void game_set_fps_enabled(bool on);           /* saves the choice */
 
 /* Title screen (desktop and web builds). The
  * camera glides slowly over a random level with no HUD and no buttons; a tap,
- * Space or Enter ends it and starts level 1 (that input is not a jump). */
+ * Space ends it and starts level 1 (that input is not a jump). */
 void game_title_begin(void);
 bool game_title_active(void);
 /* Whether a tap on the title starts the game (default); off when the
@@ -126,5 +157,7 @@ void game_debug_set_rob_x(float x);
 void game_reset_level(void);
 /* Level dropdown / Next button: regenerate terrain + entities for `level`. */
 void game_goto_level(int32_t level);
+/* The level picker: `level`, leaving the title screen if it is up. */
+void game_play_level(int32_t level);
 
 #endif /* ROLLING_ROB_GAME_H */

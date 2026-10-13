@@ -27,4 +27,23 @@ int32_t hud_title_menu_y(void);
  * closes it and calls cb (the app's way back to its menu on touch screens). */
 void hud_set_menu_button(void (*cb)(void));
 
+/* The level picker from the keyboard: open it, move the cursor (the arrows),
+ * play the level under it (Enter) or close it (Esc). The callback hears
+ * every close by the player -- with a level chosen, or backed out of. */
+void hud_picker_open(void);
+/* ... with the cursor on `level`. */
+void hud_picker_open_at(int32_t level);
+void hud_picker_move(int dx, int dy);
+void hud_picker_choose(void);
+void hud_picker_back(void);
+void hud_picker_set_closed_cb(void (*cb)(bool chose));
+
+/* Hides the whole game HUD, title included (the app's 3D demo draws over
+ * the screen and keeps only its own widgets); false shows it as it was. */
+void hud_set_hidden(bool hide);
+
+/* What the HUD puts over the game now: the title's box on the title screen,
+ * else the game's (for a picture of the screen, app_page.h). */
+lv_obj_t * hud_screen_box(void);
+
 #endif /* ROLLING_ROB_HUD_H */

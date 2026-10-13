@@ -45,6 +45,9 @@ static lv_obj_t * s_title_box;
 static lv_obj_t * s_title_prompt;
 static bool s_title_menu; /* the platform shows a menu where the prompt was */
 static void (*s_menu_cb)(void); /* a "Menu" button in the picker, back to it */
+static int32_t s_pick;          /* the picker's keyboard cursor */
+static void (*s_picker_closed)(bool chose);
+static lv_obj_t * s_title_hint;
 
 /* Laid out for 480x272; K() and FONT() scale it with the screen (ui.h). */
 #define K(n)    rr_ui_px(n)
@@ -68,9 +71,20 @@ static void next_btn_event_cb(lv_event_t * e)
 
 /* ---------------- level picker ---------------- */
 
+static void picker_update_selection(void);
+
 static void picker_set_open(bool open)
 {
+    if(open) s_pick = game_title_active() ? 0 : game_get_level();
     lv_obj_set_hidden(s_picker, !open);
+    if(open) picker_update_selection();
+}
+
+/* Closed by the player: with a level chosen, or backed out of. */
+static void picker_closed(bool chose)
+{
+    picker_set_open(false);
+    if(s_picker_closed) s_picker_closed(chose);
 }
 
 static void format_ms(char * buf, size_t n, int32_t ms)
@@ -82,9 +96,9 @@ static void format_ms(char * buf, size_t n, int32_t ms)
 
 static void picker_update_selection(void)
 {
-    int32_t cur = game_get_level();
+    int32_t cur = game_title_active() ? -1 : game_get_level();
     for(int32_t i = 0; i < RR_LEVEL_THUMB_COUNT; i++) {
-        bool sel = (i == cur);
+        bool sel = (i == s_pick); /* the cursor; the level being played is tinted */
         int32_t best = game_get_best_time_ms(i);
         if(best > 0) {
             char t[24];
@@ -97,12 +111,13 @@ static void picker_update_selection(void)
         }
         lv_obj_set_style_border_color(s_tiles[i], sel ? GOLD : lv_color_make(0x55, 0x55, 0x55), 0);
         lv_obj_set_style_border_width(s_tiles[i], sel ? K(2) : K(1), 0);
-        lv_obj_set_style_bg_color(s_tiles[i], sel ? lv_color_make(0x33, 0x2E, 0x10) : lv_color_make(0x20, 0x20, 0x20), 0);
+        lv_obj_set_style_bg_color(s_tiles[i], i == cur ? lv_color_make(0x33, 0x2E, 0x10) : lv_color_make(0x20, 0x20, 0x20), 0);
     }
     if(s_music_label)
         lv_label_set_text(s_music_label, game_music_enabled() ? LV_SYMBOL_AUDIO "  Music: on" : LV_SYMBOL_MUTE "  Music: off");
     if(s_art_label)
-        lv_label_set_text(s_art_label, rr_art_enabled() ? LV_SYMBOL_IMAGE "  Look: painted" : LV_SYMBOL_IMAGE "  Look: original");
+        lv_label_set_text(s_art_label, !rr_art_enabled() ? LV_SYMBOL_IMAGE "  Look: original"
+                                       : rr_art_rendered() ? LV_SYMBOL_IMAGE "  Look: rendered" : LV_SYMBOL_IMAGE "  Look: painted");
     if(s_fps_label)
         lv_label_set_text(s_fps_label, game_fps_enabled() ? LV_SYMBOL_EYE_OPEN "  FPS: on" : LV_SYMBOL_EYE_CLOSE "  FPS: off");
 }
@@ -167,22 +182,49 @@ static lv_obj_t * settings_button(lv_obj_t * board, int32_t x, int32_t y, int32_
 static void tile_event_cb(lv_event_t * e)
 {
     int32_t level = (int32_t)(intptr_t)lv_event_get_user_data(e);
-    picker_set_open(false);
-    game_goto_level(level);
+    game_play_level(level);
+    picker_closed(true);
 }
 
 static void picker_close_cb(lv_event_t * e)
 {
     LV_UNUSED(e);
-    picker_set_open(false);
+    picker_closed(false);
 }
 
 static void level_btn_event_cb(lv_event_t * e)
 {
     LV_UNUSED(e);
-    picker_update_selection();
     picker_set_open(true);
 }
+
+void hud_picker_open(void) { picker_set_open(true); }
+
+void hud_picker_open_at(int32_t level)
+{
+    picker_set_open(true);
+    if(level >= 0 && level < RR_LEVEL_THUMB_COUNT) s_pick = level;
+    picker_update_selection();
+}
+
+void hud_picker_set_closed_cb(void (*cb)(bool chose)) { s_picker_closed = cb; }
+
+void hud_picker_move(int dx, int dy)
+{
+    const int32_t cols = 4, n = RR_LEVEL_THUMB_COUNT;
+    int32_t p = s_pick + dx + dy * cols;
+    if(dy != 0 && (p < 0 || p >= n)) return; /* up from the top row, down from the last */
+    s_pick = (p % n + n) % n;
+    picker_update_selection();
+}
+
+void hud_picker_choose(void)
+{
+    game_play_level(s_pick);
+    picker_closed(true);
+}
+
+void hud_picker_back(void) { picker_closed(false); }
 
 static void picker_menu_cb(lv_event_t * e)
 {
@@ -220,7 +262,7 @@ static void picker_create(void)
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, K(10), K(6));
 
     lv_obj_t * hint = lv_label_create(board);
-    lv_label_set_text(hint, "Tap a level to play it.");
+    lv_label_set_text(hint, "Arrows + Enter, or tap.  Esc: back");
     lv_obj_set_style_text_font(hint, FONT(10), 0);
     lv_obj_set_style_text_color(hint, lv_color_make(0xBB, 0xBB, 0xBB), 0);
     lv_obj_align(hint, LV_ALIGN_TOP_LEFT, K(180), K(9));
@@ -429,6 +471,7 @@ static void title_create(lv_obj_t * parent)
     make_shadow_label(s_title_prompt, "Tap or press Space to start", FONT(12), GOLD,
                       LV_ALIGN_CENTER, 0, 0, NULL);
     lv_obj_t * hint = lv_label_create(s_title_box);
+    s_title_hint = hint;
     lv_label_set_text(hint, "M music   A look   F fps");
     lv_obj_set_style_text_font(hint, FONT(10), 0);
     lv_obj_set_style_text_color(hint, lv_color_make(0xDD, 0xDD, 0xDD), 0);
@@ -464,7 +507,12 @@ static lv_obj_t * make_button(lv_obj_t * parent, const char * text, int32_t x_of
     return btn;
 }
 
-void hud_title_set_menu(bool on) { s_title_menu = on; }
+void hud_title_set_menu(bool on)
+{
+    s_title_menu = on;
+    /* the app's menu holds the settings, and says which keys work */
+    if(s_title_hint) lv_obj_set_hidden(s_title_hint, on);
+}
 
 void hud_set_menu_button(void (*cb)(void)) { s_menu_cb = cb; }
 
@@ -566,8 +614,21 @@ void hud_create(lv_obj_t * parent)
     hud_update();
 }
 
+static bool s_all_hidden;
+
+lv_obj_t * hud_screen_box(void) { return game_title_active() ? s_title_box : s_hud_box; }
+
+void hud_set_hidden(bool hide)
+{
+    s_all_hidden = hide;
+    bool title = game_title_active();
+    lv_obj_set_hidden(s_title_box, hide || !title);
+    lv_obj_set_hidden(s_hud_box, hide || title);
+}
+
 void hud_update(void)
 {
+    if(s_all_hidden) return;
     bool title = game_title_active();
     if(title == lv_obj_is_hidden(s_title_box)) {
         lv_obj_set_hidden(s_title_box, !title);

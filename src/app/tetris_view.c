@@ -1,5 +1,5 @@
 /*
- * The falling-blocks game in the desktop and web app (rules: src/tetris).
+ * The falling-blocks game in the app (rules: src/tetris).
  *
  * The well, the blocks and the hold/next boxes are drawn into an opaque
  * canvas, only when something changed; text and buttons are LVGL widgets.
@@ -10,11 +10,13 @@
  * the other thumb turns or drops.
  *
  * Keys: left/right move, down soft drop, up or X turn clockwise, Z turn the
- * other way, Space hard drop, C or Shift hold, P pause. Esc (app.c) goes back
- * to the menu and pauses.
+ * other way, Space hard drop, C or Shift hold, P pause. Esc (app.c) goes to
+ * the game's page in the menu, which is the pause.
  */
 
 #include "tetris_view.h"
+#include "app_page.h"
+#include "app.h"
 #include "tetris.h"
 #include "ui.h"
 #ifdef __EMSCRIPTEN__
@@ -25,8 +27,14 @@
 #include <string.h>
 #include <time.h>
 
-#define K(n)    rr_ui_px(n)
-#define FONT(n) rr_ui_font((float)(n) * rr_ui_scale())
+/* Its own scale: the whole screen is Tetris's, so the 480x272 layout is
+ * scaled to fill it -- not the HUD's scale, which a platform may cap for
+ * the cost of blending it over the game (1280x720: 2.65 here). The layout
+ * box is centred (s_ox, s_oy). */
+static float s_sc = 1;
+static int s_ox, s_oy;
+#define K(n)    ((int)((float)(n) * s_sc + 0.5f))
+#define FONT(n) rr_ui_font((float)(n) * s_sc)
 
 static const lv_color_t GOLD = LV_COLOR_MAKE(0xFF, 0xD7, 0x00);
 
@@ -46,21 +54,6 @@ static int s_cs, s_fx, s_fy;             /* cell size, well's top left (visible 
 static int s_hx, s_hy, s_nx, s_ny, s_bw, s_hh, s_nh; /* hold and next boxes */
 
 /* ---------------- best score ---------------- */
-
-static void save_path(void)
-{
-#ifdef __EMSCRIPTEN__
-    snprintf(s_save, sizeof(s_save), "/save/tetris_best"); /* IndexedDB, synced by the page */
-#else
-    const char * home = getenv("HOME");
-    if(home && home[0]) snprintf(s_save, sizeof(s_save), "%s/.rolling_rob_tetris", home);
-    else {
-        char * pref = SDL_GetPrefPath("Vader", "Rolling Rob");
-        snprintf(s_save, sizeof(s_save), "%stetris_best.txt", pref ? pref : "");
-        SDL_free(pref);
-    }
-#endif
-}
 
 static int best_load(void)
 {
@@ -253,7 +246,7 @@ static lv_obj_t * pad(const char * text, int x, int y, int size, int i)
 {
     lv_obj_t * b = lv_button_create(s_ui);
     lv_obj_set_size(b, K(size), K(size));
-    lv_obj_set_pos(b, K(x), K(y));
+    lv_obj_set_pos(b, s_ox + K(x), s_oy + K(y));
     lv_obj_set_style_bg_color(b, lv_color_make(0x30, 0x30, 0x50), 0);
     lv_obj_set_style_bg_opa(b, LV_OPA_80, 0);
     lv_obj_set_style_bg_color(b, lv_color_make(0x60, 0x60, 0x90), LV_STATE_PRESSED);
@@ -318,7 +311,7 @@ void tetris_view_create(lv_obj_t * parent, int w, int h)
 {
     s_w = w;
     s_h = h;
-    save_path();
+    app_save_path(s_save, sizeof(s_save), "tetris");
     s_canvas = lv_canvas_create(parent);
     s_buf = lv_draw_buf_create(w, h, LV_COLOR_FORMAT_XRGB8888, LV_STRIDE_AUTO);
     if(s_buf == NULL) return;
@@ -330,6 +323,9 @@ void tetris_view_create(lv_obj_t * parent, int w, int h)
     lv_obj_set_hidden(s_canvas, true);
 
     /* layout in 480x272 units */
+    s_sc = (float)w / 480.0f < (float)h / 272.0f ? (float)w / 480.0f : (float)h / 272.0f;
+    s_ox = (w - K(480)) / 2;
+    s_oy = (h - K(272)) / 2;
     s_cs = K(12);
     s_fx = (w - TT_W * s_cs) / 2;
     s_fy = (h - TT_H * s_cs) / 2;
@@ -410,7 +406,7 @@ void tetris_view_show(bool on)
     lv_obj_set_hidden(s_ui, !on);
     if(on) {
         if(!s_started) new_game();
-        else if(!s_g.over) s_paused = true; /* coming back: paused, a tap goes on */
+        s_paused = false; /* back from the game's page: Continue means go on */
         s_drawn = ~0u;
     }
     else {
@@ -420,33 +416,31 @@ void tetris_view_show(bool on)
     }
 }
 
-void tetris_view_key(SDL_Scancode k)
+void tetris_view_key(int k)
 {
     if(s_g.over) {
-        if(k == SDL_SCANCODE_SPACE || k == SDL_SCANCODE_RETURN || k == SDL_SCANCODE_KP_ENTER) new_game();
+        if(k == APP_KEY_SPACE || k == APP_KEY_ENTER) new_game();
         return;
     }
-    if(k == SDL_SCANCODE_P) {
+    if(k == 'p') {
         toggle_pause();
         return;
     }
     if(s_paused) {
-        if(k == SDL_SCANCODE_SPACE || k == SDL_SCANCODE_RETURN) s_paused = false;
+        if(k == APP_KEY_SPACE || k == APP_KEY_ENTER) s_paused = false;
         return;
     }
     /* the held ones: a tap shorter than a frame would be missed by the state */
-    int held = k == SDL_SCANCODE_LEFT ? B_LEFT : k == SDL_SCANCODE_RIGHT ? B_RIGHT : k == SDL_SCANCODE_DOWN ? B_SOFT : -1;
+    int held = k == APP_KEY_LEFT ? B_LEFT : k == APP_KEY_RIGHT ? B_RIGHT : k == APP_KEY_DOWN ? B_SOFT : -1;
     if(held >= 0) s_taps[held]++;
     switch(k) {
-        case SDL_SCANCODE_UP:
-        case SDL_SCANCODE_X: tt_input(&s_g, TT_CW, true); break;
-        case SDL_SCANCODE_Z:
-        case SDL_SCANCODE_LCTRL:
-        case SDL_SCANCODE_RCTRL: tt_input(&s_g, TT_CCW, true); break;
-        case SDL_SCANCODE_SPACE: tt_input(&s_g, TT_HARD, true); break;
-        case SDL_SCANCODE_C:
-        case SDL_SCANCODE_LSHIFT:
-        case SDL_SCANCODE_RSHIFT: tt_input(&s_g, TT_HOLD, true); break;
+        case APP_KEY_UP:
+        case 'x': tt_input(&s_g, TT_CW, true); break;
+        case 'z':
+        case APP_KEY_CTRL: tt_input(&s_g, TT_CCW, true); break;
+        case APP_KEY_SPACE: tt_input(&s_g, TT_HARD, true); break;
+        case 'c':
+        case APP_KEY_SHIFT: tt_input(&s_g, TT_HOLD, true); break;
         default: break;
     }
 }
@@ -505,8 +499,7 @@ static void ui_update(void)
 void tetris_view_tick(uint32_t dt_ms)
 {
     if(!s_shown) return;
-    const Uint8 * kb = SDL_GetKeyboardState(NULL);
-    bool key[B_N] = { kb[SDL_SCANCODE_LEFT], kb[SDL_SCANCODE_RIGHT], kb[SDL_SCANCODE_DOWN], false, false, false };
+    bool key[B_N] = { app_key_held(APP_KEY_LEFT), app_key_held(APP_KEY_RIGHT), app_key_held(APP_KEY_DOWN), false, false, false };
     for(int i = 0; i < B_N; i++) {
         bool d = key[i] || s_lv_down[i];
         for(int f = 0; f < 16; f++) d = d || s_finger_btn[f] == i;
@@ -541,4 +534,21 @@ void tetris_view_tick(uint32_t dt_ms)
         draw();
     }
     ui_update();
+}
+
+bool tetris_view_running(void) { return s_started && !s_g.over; }
+void tetris_view_new_game(void) { new_game(); }
+int tetris_view_best(void) { return s_started ? s_g.best : best_load(); }
+
+void tetris_view_preview(void)
+{
+    bool started = s_started;
+    if(!started) new_game();
+    s_started = started; /* a game shown is not one played: the page keeps "Play" */
+    if(s_buf) {
+        draw();
+        page_pic_pixels((const uint32_t *)s_buf->data, s_stride);
+    }
+    ui_update();
+    page_pic_widgets(s_ui);
 }

@@ -74,10 +74,21 @@ set(RR_COMMON_DEFS
     ROLLING_ROB_VIEW_SCALE=${ROLLING_ROB_VIEW_SCALE}f
 )
 
+# The app around the game (src/app: menu, Tetris, 2048, info page), on every
+# platform; each brings its own info page (app_info_*.c).
+set(RR_APP_SOURCES src/app/app.c src/app/tetris_view.c src/tetris/tetris.c
+                   src/app/g2048_view.c src/g2048/g2048.c
+                   src/app/pix.c src/app/game_ui.c src/app/app_page.c
+                   src/app/snake_view.c src/snake/snake.c
+                   src/app/breakout_view.c src/breakout/breakout.c
+                   src/app/mines_view.c src/mines/mines.c
+                   src/app/world3d_view.c src/app/rob3d_view.c src/r3d/r3d.c
+                   src/app/fractal_view.c src/fractal/fractal.c)
+
 add_executable(rolling_rob_sim src/platform/sim/main_sim.c src/platform/sim/bot.c
-               src/platform/sim/music.c src/platform/sim/app.c
-               src/platform/sim/tetris_view.c src/tetris/tetris.c)
-target_include_directories(rolling_rob_sim PRIVATE third_party/miniaudio src/tetris)
+               src/platform/sim/music.c src/platform/sim/app_info_sdl.c
+               ${RR_APP_SOURCES})
+target_include_directories(rolling_rob_sim PRIVATE third_party/miniaudio src/app src/tetris src/g2048 src/r3d src/snake src/breakout src/mines src/fractal src/platform/sim)
 target_compile_definitions(rolling_rob_sim PRIVATE
     ROLLING_ROB_TARGET_SIM=1
     ROLLING_ROB_SIM_ZOOM=${ROLLING_ROB_SIM_ZOOM}

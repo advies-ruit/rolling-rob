@@ -16,5 +16,7 @@ void fps_overlay_create(lv_display_t * disp, uint32_t (*frames)(void));
 
 /* Shown from creation on; this hides and shows it again. */
 void fps_overlay_set_visible(bool on);
+/* The label, NULL before fps_overlay_create (for a picture of the screen). */
+lv_obj_t * fps_overlay_label(void);
 
 #endif /* ROLLING_ROB_FPS_OVERLAY_H */

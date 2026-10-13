@@ -277,7 +277,12 @@ static void times_default_path(void)
 }
 
 static void times_save(void);
-static bool s_music_on = true, s_music_available, s_music_next;
+static bool s_music_on = true, s_music_available;
+static int s_music_skip;
+static int s_music_volume = -1;
+static rr_music_order_t s_music_order = RR_MUSIC_SHUFFLE;
+static char s_music_title[64];
+static int32_t s_music_pos_ms;
 static bool s_fps_on;
 
 bool game_fps_enabled(void) { return s_fps_on; }
@@ -292,7 +297,8 @@ void game_set_fps_enabled(bool on)
 void game_set_music_available(bool available) { s_music_available = available; }
 bool game_music_available(void) { return s_music_available; }
 bool game_music_enabled(void) { return s_music_on; }
-void game_music_request_next(void) { s_music_next = true; }
+void game_music_request_next(void) { s_music_skip = 1; }
+void game_music_request_skip(int dir) { s_music_skip = dir < 0 ? -1 : 1; }
 
 void game_set_music_enabled(bool on)
 {
@@ -301,11 +307,45 @@ void game_set_music_enabled(bool on)
     times_save();
 }
 
-bool game_music_take_next(void)
+int game_music_take_skip(void)
 {
-    bool r = s_music_next;
-    s_music_next = false;
+    int r = s_music_skip;
+    s_music_skip = 0;
     return r;
+}
+
+static int s_music_volume_default = 70;
+int game_music_volume(void) { return s_music_volume >= 0 ? s_music_volume : s_music_volume_default; }
+void game_set_music_volume_default(int percent) { s_music_volume_default = percent < 0 ? 0 : percent > 100 ? 100 : percent; }
+
+void game_set_music_volume(int percent)
+{
+    if(percent < 0) percent = 0;
+    if(percent > 100) percent = 100;
+    if(percent == game_music_volume() && s_music_volume >= 0) return;
+    s_music_volume = percent;
+    times_save();
+}
+
+rr_music_order_t game_music_order(void) { return s_music_order; }
+
+void game_set_music_order(rr_music_order_t o)
+{
+    if(o == s_music_order || (unsigned)o >= RR_MUSIC_ORDERS) return;
+    s_music_order = o;
+    times_save();
+}
+
+void game_music_set_playing(const char * title, int32_t pos_ms)
+{
+    snprintf(s_music_title, sizeof(s_music_title), "%s", title ? title : "");
+    s_music_pos_ms = pos_ms;
+}
+
+const char * game_music_playing(int32_t * pos_ms)
+{
+    if(pos_ms) *pos_ms = s_music_pos_ms;
+    return s_music_title;
 }
 
 static void times_load(void)
@@ -318,8 +358,13 @@ static void times_load(void)
     while(fscanf(fp, "%15s %d %d", key, &lv, &ms) == 3) {
         if(strcmp(key, "best") == 0 && lv >= 1 && lv <= RR_LEVEL_COUNT) s_best_ms[lv - 1] = ms;
         else if(strcmp(key, "run") == 0) s_best_run_ms = ms;
-        else if(strcmp(key, "art") == 0) rr_art_set_enabled(ms != 0);
+        else if(strcmp(key, "art") == 0) {
+            rr_art_set_enabled(ms != 0);
+            rr_art_set_rendered(ms == 2);
+        }
         else if(strcmp(key, "music") == 0) s_music_on = ms != 0;
+        else if(strcmp(key, "volume") == 0 && ms >= 0 && ms <= 100) s_music_volume = ms;
+        else if(strcmp(key, "order") == 0 && ms >= 0 && ms < RR_MUSIC_ORDERS) s_music_order = (rr_music_order_t)ms;
         else if(strcmp(key, "fps") == 0) s_fps_on = ms != 0;
     }
     fclose(fp);
@@ -334,8 +379,11 @@ static void times_save(void)
         if(s_best_ms[i] > 0) fprintf(fp, "best %d %d\n", (int)i + 1, (int)s_best_ms[i]);
     }
     if(s_best_run_ms > 0) fprintf(fp, "run 0 %d\n", (int)s_best_run_ms);
-    fprintf(fp, "art 0 %d\n", rr_art_enabled() ? 1 : 0); /* painted art or the original look */
+    /* the original look 0, painted art 1, rendered 2 */
+    fprintf(fp, "art 0 %d\n", !rr_art_enabled() ? 0 : rr_art_rendered() ? 2 : 1);
     fprintf(fp, "music 0 %d\n", s_music_on ? 1 : 0);
+    if(s_music_volume >= 0) fprintf(fp, "volume 0 %d\n", s_music_volume);
+    fprintf(fp, "order 0 %d\n", (int)s_music_order);
     fprintf(fp, "fps 0 %d\n", s_fps_on ? 1 : 0);
     fclose(fp);
 }
@@ -510,6 +558,12 @@ void game_title_begin(void)
 }
 
 bool game_title_active(void) { return s_title; }
+
+void game_play_level(int32_t level)
+{
+    s_title = false;
+    game_goto_level(level);
+}
 
 static void title_end(void)
 {
@@ -686,7 +740,16 @@ void game_input_key(rr_key_t key, bool pressed)
             /* Keys arrive as their state on every poll: act on the press. */
             static bool down;
             if(pressed && !down) {
-                rr_art_set_enabled(!rr_art_enabled());
+                /* original -> painted -> rendered (when the set is there) -> original */
+                if(!rr_art_enabled()) {
+                    rr_art_set_enabled(true);
+                    rr_art_set_rendered(false);
+                }
+                else if(!rr_art_rendered() && rr_art_rendered_available()) rr_art_set_rendered(true);
+                else {
+                    rr_art_set_enabled(false);
+                    rr_art_set_rendered(false);
+                }
                 times_save();
             }
             down = pressed;
@@ -700,7 +763,7 @@ void game_input_key(rr_key_t key, bool pressed)
         }
         case RR_KEY_NEXT_TRACK: {
             static bool down;
-            if(pressed && !down) s_music_next = true;
+            if(pressed && !down) s_music_skip = 1;
             down = pressed;
             break;
         }
@@ -1074,8 +1137,42 @@ static void band_text(gfx_ctx_t * g, const gfx_text_t * items, int n)
 
 static void fill_view(rr_view_t * out);
 
+bool game_render_bands_missed(void) { return s_ts_miss_n > 0; }
+
+static game_renderer_t s_renderer;
+static const rr_view_t * s_overlay_view; /* while s_renderer draws */
+
+void game_set_renderer(game_renderer_t r) { s_renderer = r; }
+
+void game_overlay_band(uint32_t * band, int stride_px, int y0, int rows, int w, int h)
+{
+    if(s_overlay_view == NULL) return;
+    gfx_ctx_t g;
+    gfx_text_t text[GFX_TEXT_MAX];
+    gfx_begin(&g, band - (ptrdiff_t)y0 * stride_px, w, h, stride_px);
+    gfx_set_band(&g, y0, y0 + rows);
+    g.text_q = text;
+    g.text_max = GFX_TEXT_MAX;
+    rr_draw_frame(&g, s_overlay_view, s_scale); /* rr_draw_layers is the overlay alone */
+    if(g.text_n) band_text(&g, text, g.text_n);
+}
+
 void game_render_bands(int w, int h, int band_rows, rr_band_sink_t sink, void * user)
 {
+    if(s_renderer) {
+        for(int i = 0; i < s_ts_miss_n; i++) ts_make(&s_ts_miss[i]);
+        s_ts_miss_n = 0;
+        rr_view_t v;
+        fill_view(&v);
+        rr_draw_prepare(w, h);
+        unsigned layers = rr_draw_layers;
+        rr_draw_layers = RR_LAYER_OVERLAY;
+        s_overlay_view = &v;
+        s_renderer(w, h, &v, s_scale, sink, user);
+        s_overlay_view = NULL;
+        rr_draw_layers = layers;
+        return;
+    }
     for(int i = 0; i < s_ts_miss_n; i++) ts_make(&s_ts_miss[i]);
     s_ts_miss_n = 0;
     rr_view_t v;
@@ -1098,7 +1195,7 @@ void game_render(lv_obj_t * canvas)
 
     static int bands = -1;
     if(bands < 0) bands = getenv("ROLLING_ROB_BANDS") ? atoi(getenv("ROLLING_ROB_BANDS")) : 0;
-    if(bands > 0) {
+    if(bands > 0 || s_renderer) {
         game_render_bands((int)buf->header.w, (int)buf->header.h, bands, canvas_sink, buf);
         lv_obj_invalidate(canvas);
         return;

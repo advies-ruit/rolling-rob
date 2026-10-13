@@ -5,6 +5,11 @@
  * touches files (opening the next track) happens in music_update() on the
  * main thread, under SDL_LockAudioDevice. On the web build the callback runs
  * on the main thread anyway and the lock is a no-op.
+ *
+ * The player's settings are the game's (game.h): on/off, volume, order
+ * (shuffled, in order, this track again and again). A skip (N, or the page's
+ * Track line) fades the track out before the next one starts; "previous"
+ * restarts the track when it has played a few seconds, as players do.
  */
 #include "music.h"
 #include "game.h"
@@ -43,6 +48,9 @@ static char * s_tracks[MAX_TRACKS];
 static int s_track_n;
 static int s_order[MAX_TRACKS];
 static int s_pos = -1; /* index into s_order of the playing track */
+static rr_music_order_t s_order_kind = RR_MUSIC_SHUFFLE; /* what s_order was made for */
+static int s_skip;      /* a skip waiting for the fade out: +1 / -1 */
+static char s_title[64];
 
 static SDL_AudioDeviceID s_dev;
 static int s_rate;
@@ -52,13 +60,13 @@ static int s_rate;
 static ma_decoder * s_dec;
 static void * s_data; /* the whole file: decoders read from memory */
 
-static float s_volume = 0.7f;
-static float s_gain;            /* current, ramps toward s_target */
+static volatile float s_gain;   /* current, ramps toward s_target */
 static volatile float s_target;
 static float s_step;            /* gain change per sample frame */
 static volatile bool s_ended;   /* set by the callback, handled in music_update */
 static volatile bool s_loop;    /* the title track: start over instead of ending */
 static volatile bool s_snap;    /* jump to the target gain at once (the hard start) */
+static volatile uint64_t s_played; /* frames of this track played, for the time shown */
 
 /* The title screen's track: intro.* in the music directory, kept out of the
  * playlist. s_playing_intro says which kind is loaded. */
@@ -83,11 +91,13 @@ static void audio_cb(void * user, Uint8 * stream, int len)
     }
     ma_uint64 got = 0;
     ma_decoder_read_pcm_frames(s_dec, out, (ma_uint64)frames, &got);
+    s_played += got;
     if((int)got < frames && s_loop) {
         ma_uint64 more = 0;
         ma_decoder_seek_to_pcm_frame(s_dec, 0);
         ma_decoder_read_pcm_frames(s_dec, out + got * 2, (ma_uint64)frames - got, &more);
         got += more;
+        s_played = more;
     }
     if((int)got < frames) {
         memset(out + got * 2, 0, (size_t)(frames - (int)got) * 2 * sizeof(float));
@@ -134,10 +144,13 @@ static int scan_dir(const char * dir)
     return s_track_n;
 }
 
-/* New shuffled order; never starts with the track that just played. */
-static void shuffle(int avoid_first)
+/* A new order for the kind chosen. Shuffled: never starts with the track
+ * that just played. In order: by file name (music_prep.sh numbers them). */
+static void make_order(int avoid_first)
 {
+    s_order_kind = game_music_order();
     for(int i = 0; i < s_track_n; i++) s_order[i] = i;
+    if(s_order_kind != RR_MUSIC_SHUFFLE) return;
     for(int i = s_track_n - 1; i > 0; i--) {
         int j = rand() % (i + 1);
         int t = s_order[i]; s_order[i] = s_order[j]; s_order[j] = t;
@@ -145,6 +158,46 @@ static void shuffle(int avoid_first)
     if(s_track_n > 1 && s_order[0] == avoid_first) {
         int t = s_order[0]; s_order[0] = s_order[1]; s_order[1] = t;
     }
+}
+
+/* The order changed while a track plays: a new order around it, so the
+ * next one follows from where we are. */
+static void reorder(void)
+{
+    int cur = s_pos >= 0 ? s_order[s_pos] : -1;
+    make_order(-1);
+    s_pos = -1;
+    for(int i = 0; i < s_track_n; i++)
+        if(s_order[i] == cur) {
+            if(s_order_kind == RR_MUSIC_SHUFFLE) { /* the current one first, the rest shuffled after it */
+                s_order[i] = s_order[0];
+                s_order[0] = cur;
+                s_pos = 0;
+            }
+            else s_pos = i;
+        }
+}
+
+/* "02_arcade_dash_2.mp3" -> "Arcade Dash 2" */
+static void title_of(const char * path, char * out, size_t n)
+{
+    const char * name = strrchr(path, '/');
+    name = name ? name + 1 : path;
+    const char * p = name;
+    while(*p >= '0' && *p <= '9') p++;
+    if(p != name && (*p == '_' || *p == ' ' || *p == '-' || *p == '.')) p++;
+    else p = name;
+    const char * dot = strrchr(p, '.');
+    size_t len = dot ? (size_t)(dot - p) : strlen(p);
+    size_t o = 0;
+    bool word = true;
+    for(size_t i = 0; i < len && o + 1 < n; i++) {
+        char c = p[i] == '_' ? ' ' : p[i];
+        if(word && c >= 'a' && c <= 'z') c = (char)(c - 'a' + 'A');
+        word = c == ' ';
+        out[o++] = c;
+    }
+    out[o] = 0;
 }
 
 static void * read_file(const char * path, size_t * size)
@@ -185,6 +238,7 @@ static bool open_path(const char * path, bool loop, bool snap)
     s_data = data;
     s_ended = false;
     s_loop = loop;
+    s_played = 0;
     if(snap) s_snap = true;
     SDL_UnlockAudioDevice(s_dev);
     if(old_dec) { ma_decoder_uninit(old_dec); free(old_dec); }
@@ -193,27 +247,43 @@ static bool open_path(const char * path, bool loop, bool snap)
         const char * slash = strrchr(path, '/');
         printf("music: %s\n", slash ? slash + 1 : path);
         fflush(stdout);
+        title_of(path, s_title, sizeof(s_title));
     }
+    else s_title[0] = 0;
     return true;
 }
 
-/* Main thread only. Tries the following tracks until one opens. */
-static void open_next(bool snap)
+/* Main thread only. dir +1: the next track, -1: the one before, 0: this
+ * one again (repeat); tries further until one opens. */
+static void open_step(int dir, bool snap)
 {
     s_playing_intro = false;
     if(s_track_n == 0) {
         open_path(NULL, false, false);
         return;
     }
+    if(game_music_order() != s_order_kind) reorder();
+    bool repeat = game_music_order() == RR_MUSIC_REPEAT;
     for(int tries = 0; tries < s_track_n; tries++) {
         int last = s_pos >= 0 ? s_order[s_pos] : -1;
-        if(++s_pos >= s_track_n) {
-            shuffle(last);
+        if(dir == 0 && s_pos >= 0) {
+            /* this one again */
+        }
+        else if(dir < 0) {
+            if(--s_pos < 0) s_pos = s_track_n - 1;
+        }
+        else if(++s_pos >= s_track_n) {
+            if(s_order_kind == RR_MUSIC_SHUFFLE) make_order(last);
             s_pos = 0;
         }
-        if(open_path(s_tracks[s_order[s_pos]], false, snap)) return;
+        if(open_path(s_tracks[s_order[s_pos]], repeat, snap)) return;
+        if(dir == 0) dir = 1; /* it would not open: the next one */
     }
 }
+
+static void open_next(bool snap) { open_step(1, snap); }
+
+static int volume_percent(void) { return game_music_volume(); }
 
 static void open_intro(void)
 {
@@ -228,7 +298,7 @@ bool music_init(void)
     const char * vol = getenv("ROLLING_ROB_MUSIC_VOLUME");
     if(vol && *vol) {
         int v = atoi(vol);
-        s_volume = (v < 0 ? 0 : v > 100 ? 100 : v) / 100.0f;
+        game_set_music_volume_default(v); /* until the player picks one */
     }
     if(env && *env) scan_dir(env);
     else if(scan_dir("music/mp3") == 0) scan_dir("music");
@@ -254,11 +324,11 @@ bool music_init(void)
     s_step = 1.0f / (FADE_S * (float)s_rate);
 
     srand((unsigned)time(NULL));
-    shuffle(-1);
+    make_order(-1);
     s_pos = -1;
     if(game_title_active()) open_intro();
     else open_next(false);
-    s_target = game_music_enabled() ? s_volume : 0.0f;
+    s_target = game_music_enabled() ? volume_percent() / 100.0f : 0.0f;
     SDL_PauseAudioDevice(s_dev, 0);
     game_set_music_available(true);
     return true;
@@ -267,14 +337,48 @@ bool music_init(void)
 void music_update(void)
 {
     if(s_dev == 0) return;
-    s_target = game_music_enabled() ? s_volume : 0.0f;
+    float volume = game_music_enabled() ? volume_percent() / 100.0f : 0.0f;
     bool title = game_title_active();
-    if(title && !s_playing_intro) open_intro();
+    int skip = game_music_take_skip();
+    if(title) skip = 0; /* N on the title: nothing to skip to */
+    /* "Previous" a few seconds into a track: that track from the start. */
+    if(skip < 0 && !s_skip && s_played > (uint64_t)s_rate * 3) skip = 2;
+    if(skip) {
+        s_skip = skip;
+        if(!game_music_enabled()) s_gain = 0; /* silent: nothing to fade */
+    }
+    /* repeat on / off for the track playing */
+    if(!s_playing_intro) s_loop = game_music_order() == RR_MUSIC_REPEAT;
+
+    if(title && !s_playing_intro) {
+        s_skip = 0;
+        open_intro();
+    }
     /* Leaving the title: no fade. The calm track stops dead and the first
      * game track starts at full volume -- the contrast is the point. */
     else if(!title && s_playing_intro) open_next(true);
-    else if(!title && (game_music_take_next() || s_ended)) open_next(false);
-    else if(title) game_music_take_next(); /* N on the title: nothing to skip to */
+    else if(!title && s_skip) {
+        /* fade out, then the other track at full volume */
+        volume = 0.0f;
+        if(s_gain == 0.0f || s_ended || s_dec == NULL) {
+            int d = s_skip;
+            s_skip = 0;
+            if(d == 2) {
+                SDL_LockAudioDevice(s_dev);
+                if(s_dec) ma_decoder_seek_to_pcm_frame(s_dec, 0);
+                s_played = 0;
+                s_ended = false;
+                SDL_UnlockAudioDevice(s_dev);
+            }
+            else open_step(d, false);
+            volume = game_music_enabled() ? volume_percent() / 100.0f : 0.0f;
+            s_snap = true;
+        }
+    }
+    else if(!title && s_ended) open_step(game_music_order() == RR_MUSIC_REPEAT ? 0 : 1, false);
+    s_target = volume;
+    uint32_t ms = s_rate ? (uint32_t)(s_played * 1000 / (uint64_t)s_rate) : 0;
+    game_music_set_playing(s_playing_intro ? "Title music" : s_title, (int32_t)ms);
 }
 
 void music_shutdown(void)

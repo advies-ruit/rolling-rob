@@ -29,6 +29,12 @@ bool rr_art_prepare(const rr_view_t * v, float view_scale, int w, int h);
  * its files are there. */
 void rr_art_set_enabled(bool on);
 bool rr_art_enabled(void);
+/* The rendered set (art-3d next to art, made separately) instead of
+ * the painted one; what it lacks still comes from the painted set. Whether
+ * it is there at all (its rob-3d.png). */
+void rr_art_set_rendered(bool on);
+bool rr_art_rendered(void);
+bool rr_art_rendered_available(void);
 /* Whether the last prepared frame was drawn with the art (the choice, and
  * the files are there). */
 bool rr_art_drawn(void);

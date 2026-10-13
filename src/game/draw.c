@@ -26,6 +26,7 @@ static _Thread_local float SCREEN_W_USER; /* screen width in world units */
 static _Thread_local float SCREEN_H_USER;
 static bool s_no_sky_mask; /* ROLLING_ROB_NO_SKY_MASK, read once in rr_draw_prepare */
 unsigned rr_draw_layers = RR_LAYER_ALL;
+static bool s_no_light; /* ROLLING_ROB_NO_LIGHT, read once in rr_draw_prepare */
 static bool s_art; /* this frame uses the painted art (art.c); set before the threads start */
 
 #define FILL(c)              gfx_set_fill(G, (c))
@@ -997,6 +998,119 @@ static void draw_explosion(void)
 }
 
 /* ------------------------------------------------------------------ */
+/* Light: the glow of fireballs and explosions (rendered look only)    */
+/* ------------------------------------------------------------------ */
+
+/* The prerendered art is lit by a fixed sun; fire should light its
+ * surroundings too. Each light brightens what is already drawn around it:
+ * the pixel gains a share of itself tinted by the light (lit surfaces) plus a
+ * little of the light's own colour (the glow in the air), falling off
+ * smoothly to nothing at the radius. Purely visual: reads the view, writes
+ * pixels after the actors, and touches no game state or random sequence. */
+typedef struct { float x, y, r, cr, cg, cb, i; } light_t;
+#define LIGHT_MAX 24
+
+static int collect_lights(light_t * L)
+{
+    int n = 0;
+    float flick = 0.85f + 0.15f * sinf(now_ms() * 0.031f);
+    for(int i = 0; i < rr_fireball_count && n < LIGHT_MAX; i++) {
+        const rr_fireball_t * fb = &rr_fireballs[i];
+        float f = flick + 0.1f * sinf(now_ms() * 0.047f + (float)i * 2.1f);
+        L[n++] = (light_t) { fb->x, fb->y, 130.0f, 1.0f, 0.55f, 0.15f, fb->life * f };
+    }
+    /* Explosion particles gathered into a light per blast: the 30 sparks of
+     * one blast start in one spot and fly apart together. */
+    int first = n;
+    float sum[LIGHT_MAX];
+    for(int i = 0; i < RR_EXPLOSION_MAX; i++) {
+        const rr_particle_t * p = &V->explosion[i];
+        if(p->life <= 0) continue;
+        int k = first;
+        for(; k < n; k++) {
+            float dx = p->x - L[k].x / sum[k], dy = p->y - L[k].y / sum[k];
+            if(dx * dx + dy * dy < 200.0f * 200.0f) break;
+        }
+        if(k == n) {
+            if(n == LIGHT_MAX) continue;
+            L[n] = (light_t) { 0 };
+            sum[n++] = 0;
+        }
+        L[k].x += p->x * p->life;
+        L[k].y += p->y * p->life;
+        sum[k] += p->life;
+        L[k].i += 1.0f;
+    }
+    for(int k = first; k < n; k++) {
+        float life = sum[k] / L[k].i; /* mean life, 1 at the bang */
+        L[k].x /= sum[k];
+        L[k].y /= sum[k];
+        L[k].r = 150.0f + 150.0f * (1.0f - life);
+        L[k].cr = 1.0f;
+        L[k].cg = 0.45f + 0.35f * life;
+        L[k].cb = 0.1f + 0.2f * life * life;
+        L[k].i = fminf(1.0f, sum[k] / 12.0f) * (0.5f + 1.0f * life) * flick;
+    }
+    return n;
+}
+
+static void apply_light(const light_t * l, float r, float ex, float ey)
+{
+    int x0 = (int)floorf(ex - r), x1 = (int)ceilf(ex + r);
+    int y0 = (int)floorf(ey - r), y1 = (int)ceilf(ey + r);
+    if(x0 < 0) x0 = 0;
+    if(x1 > G->w) x1 = G->w;
+    if(y1 > G->y_hi) y1 = G->y_hi;
+    if(y1 > G->h) y1 = G->h;
+    if(x0 >= x1) return;
+    float inv = 1.0f / (r * r);
+    /* At the centre a surface gains `mul` of its own colour (what is lit
+     * stands out) and the gap to white closes by `scr` (the glow in the air),
+     * both tinted by the light; bright pixels thus cannot burn out. */
+    float mul = 0.9f * l->i, scr = 0.3f * l->i;
+    float mr = mul * l->cr, mg = mul * l->cg, mb = mul * l->cb;
+    float sr = scr * l->cr, sg = scr * l->cg, sb = scr * l->cb;
+    int step = G->row_step > 1 ? G->row_step : 1;
+    for(int y = gfx_first_row(G, y0); y < y1; y += step) {
+        float dy = (float)y + 0.5f - ey;
+        float dy2 = dy * dy * inv;
+        if(dy2 >= 1.0f) continue;
+        uint32_t * row = G->px + (long)y * G->stride_px;
+        for(int x = x0; x < x1; x++) {
+            float dx = (float)x + 0.5f - ex;
+            float t = 1.0f - (dx * dx * inv + dy2);
+            if(t <= 0) continue;
+            t *= t;
+            uint32_t d = gfx_under(row[x], x, y);
+            float cr = (float)((d >> 16) & 255), cg = (float)((d >> 8) & 255), cb = (float)(d & 255);
+            int nr = (int)(cr + (cr * mr + (255.0f - cr) * sr) * t);
+            int ng = (int)(cg + (cg * mg + (255.0f - cg) * sg) * t);
+            int nb = (int)(cb + (cb * mb + (255.0f - cb) * sb) * t);
+            nr = nr > 255 ? 255 : nr;
+            ng = ng > 255 ? 255 : ng;
+            nb = nb > 255 ? 255 : nb;
+            row[x] = 0xFF000000u | (uint32_t)nr << 16 | (uint32_t)ng << 8 | (uint32_t)nb;
+        }
+    }
+}
+
+static void draw_lights(void)
+{
+    light_t L[LIGHT_MAX];
+    int n = collect_lights(L);
+    float sc = gfx_current_scale(G);
+    for(int k = 0; k < n; k++) {
+        if(L[k].i <= 0.01f) continue;
+        float ex, ey;
+        gfx_user_to_device(G, L[k].x, L[k].y, &ex, &ey);
+        float r = L[k].r * sc;
+        if(ey + r < (float)G->y_lo || ey - r >= (float)G->y_hi) continue;
+        if(ex + r < 0 || ex - r >= (float)G->w) continue;
+        apply_light(&L[k], r, ex, ey);
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /* Screen-space overlays: charge meter + touch controls                */
 /* ------------------------------------------------------------------ */
 
@@ -1166,6 +1280,7 @@ void rr_draw_prepare(int screen_w, int screen_h)
 {
     static int disabled = -1;
     if(disabled < 0) s_no_sky_mask = getenv("ROLLING_ROB_NO_SKY_MASK") != NULL;
+    if(disabled < 0) s_no_light = getenv("ROLLING_ROB_NO_LIGHT") != NULL;
     if(disabled < 0) disabled = getenv("ROLLING_ROB_NO_BTN_CACHE") != NULL;
     if(disabled || (screen_w == s_btn_w && screen_h == s_btn_h)) return;
     rr_touch_btn_t b[3];
@@ -1278,7 +1393,7 @@ void rr_draw_frame(gfx_ctx_t * g, const rr_view_t * v, float view_scale)
     if(masked) gfx_set_col_mask(g, s_sky_mask);
     const unsigned L = rr_draw_layers;
     if(s_art) {
-        P(RR_PROF_SKY, rr_art_background(g, v)); /* the picture is BG, the trees WORLD */
+        if(L & RR_LAYER_BG) P(RR_PROF_SKY, rr_art_background(g, v)); /* the picture is BG, the trees WORLD */
         if(L & RR_LAYER_WORLD) P(RR_PROF_MOUNTAIN, rr_art_ground(g, v));
     }
     else {
@@ -1305,6 +1420,7 @@ void rr_draw_frame(gfx_ctx_t * g, const rr_view_t * v, float view_scale)
     if(L & RR_LAYER_ACTORS) P(RR_PROF_ROB_FX, {
         if(v->rob_visible) draw_rob();
         draw_explosion();
+        if(s_art && rr_art_rendered() && !s_no_light) draw_lights();
         if(v->won) {
             draw_confetti();
             draw_fireworks();
