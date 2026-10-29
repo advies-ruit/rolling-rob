@@ -8,6 +8,14 @@ as a desktop program.
 Play it at https://advies-ruit.github.io/rolling-rob/ -- it also installs as
 an app and works offline.
 
+## How it was made
+
+A port of the original Rolling Rob (vader.nl) to C with LVGL, written with the
+help of an AI coding assistant (Claude). The painted landscapes were generated
+with an image model and the music with Suno; both were then prepared for the
+game (resized, compressed, metadata removed). The web version is built from
+this source by GitHub Actions.
+
 ## Building
 
     git clone --recursive <this repository>
