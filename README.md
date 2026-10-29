@@ -8,6 +8,14 @@ as a desktop program.
 Play it at https://advies-ruit.github.io/rolling-rob/ -- it also installs as
 an app and works offline.
 
+![Rob rolling through level 4, Boulder Boulevard, in the painted look](docs/speedrun.webp)
+
+<p>
+  <img src="docs/menu.png" width="32%" alt="The menu: Rolling Rob, Tetris, 2048, 3D world, Snake, Breakout, Mines, fractals">
+  <img src="docs/levels.png" width="32%" alt="Choosing one of the ten levels">
+  <img src="docs/level-4.webp" width="32%" alt="Level 4 in the painted look">
+</p>
+
 ## How it was made
 
 A port of the original Rolling Rob (vader.nl) to C with LVGL, written with the
