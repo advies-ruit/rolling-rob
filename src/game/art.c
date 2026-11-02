@@ -55,25 +55,31 @@ static int rob_frames(void)
 #define ROB_CY 0.540f
 #define ROB_R  0.315f
 
-/* The pictures are made for the original ten levels: art/bg-N.jpg and the
- * rest, N = 0..9. A level after them borrows the set of a level in its
- * theme (level 11, Beyond the Summit: level 6's space set) until it has
- * pictures of its own. */
-#define ART_SETS 10
-static int art_set(int level)
-{
-    if(level >= 0 && level < ART_SETS) return level;
-    return 5; /* Beyond the Summit: Extreme Edge's space pictures */
-}
+/* One picture set per level: art/bg-N.jpg, tex-N.jpg, tree-N.png and
+ * enemy-N.png, N = level - 1. A set that is missing or broken (any of its
+ * pictures cannot be read or decoded) is not tried again this session; its
+ * level then draws the fallback set if it has one (level 11, Beyond the
+ * Summit: level 6's space set, until its own pictures are there), else the
+ * original look. Either way the other levels keep their pictures. */
+#define ART_SETS RR_LEVEL_COUNT
+static const int8_t s_fallback[ART_SETS] = { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 5 };
 
 /* The lip colour of the ground per picture set (the painted set's accent);
- * set 0 derives it from the soil itself. */
+ * set 0 derives it from the soil itself. Set 10 has set 5's lavender, the
+ * same theme's, until its own pictures say otherwise. */
 static const uint32_t s_accent[ART_SETS] = {
-    0, 0xF4C37D, 0xF0F9ED, 0xFFAD53, 0xA5CA75, 0xA5A6D6, 0xF9DFB1, 0x78EDDA, 0xF58458, 0xF1D781,
+    0, 0xF4C37D, 0xF0F9ED, 0xFFAD53, 0xA5CA75, 0xA5A6D6, 0xF9DFB1, 0x78EDDA, 0xF58458, 0xF1D781, 0xA5A6D6,
 };
-/* Sets that failed to load (a picture missing or broken): that set draws
- * the original look, the others keep theirs. */
 static bool s_set_failed[ART_SETS];
+
+/* The set a level draws: its own, or the fallback once its own has failed;
+ * -1 when there is none left (the original look). */
+static int art_set(int level)
+{
+    int set = level >= 0 && level < ART_SETS ? level : -1;
+    while(set >= 0 && s_set_failed[set]) set = s_fallback[set];
+    return set;
+}
 
 static enum { ART_UNKNOWN, ART_READY, ART_OFF } s_state;
 static bool s_user_off = true; /* the original look is the default; A, the picker or the saved choice switch */
@@ -215,18 +221,31 @@ static uint8_t * read_file(const char * name, size_t * len)
     return data;
 }
 
+/* The pictures are a few hundred pixels; anything past this is not one of
+ * them (and would only take memory). */
+#define MAX_PICTURE 4096
+static bool size_ok(unsigned w, unsigned h) { return w > 0 && h > 0 && w <= MAX_PICTURE && h <= MAX_PICTURE; }
+
 static bool load_png(const char * name, img_t * out)
 {
     size_t n;
     uint8_t * data = read_file(name, &n);
     if(data == NULL) return false;
+    /* the size from the header first (IHDR: width, height at bytes 16-23),
+     * so a picture far too large is not decoded at all */
+    if(n < 24 || !size_ok((unsigned)data[16] << 24 | data[17] << 16 | data[18] << 8 | data[19],
+                          (unsigned)data[20] << 24 | data[21] << 16 | data[22] << 8 | data[23])) {
+        fprintf(stderr, "art: %s/%s is not a picture of a usable size\n", s_dir, name);
+        free(data);
+        return false;
+    }
     unsigned char * dec = NULL;
     unsigned w = 0, h = 0;
     unsigned err = lodepng_decode32(&dec, &w, &h, data, n);
     free(data);
     /* LVGL's copy of lodepng hands back a draw buffer, not a plain array. */
     lv_draw_buf_t * buf = (lv_draw_buf_t *)dec;
-    bool ok = err == 0 && buf != NULL && img_alloc(out, (int)w, (int)h);
+    bool ok = err == 0 && buf != NULL && size_ok(w, h) && img_alloc(out, (int)w, (int)h);
     if(ok) {
         for(unsigned y = 0; y < h; y++) {
             const uint8_t * s = buf->data + (size_t)y * buf->header.stride;
@@ -280,7 +299,7 @@ static bool load_jpg(const char * name, img_t * out)
     jpg_io_t io = { data, n, out };
     JDEC jd;
     void * pool = malloc(32 * 1024);
-    bool ok = pool && jd_prepare(&jd, jpg_in, pool, 32 * 1024, &io) == JDR_OK &&
+    bool ok = pool && jd_prepare(&jd, jpg_in, pool, 32 * 1024, &io) == JDR_OK && size_ok(jd.width, jd.height) &&
               img_alloc(out, jd.width, jd.height) && jd_decomp(&jd, jpg_out, 0) == JDR_OK;
     if(!ok) fprintf(stderr, "art: cannot decode %s/%s (baseline JPEG only)\n", s_dir, name);
     free(pool);
@@ -877,21 +896,26 @@ bool rr_art_prepare(const rr_view_t * v, float view_scale, int w, int h)
     gfx_backdrop.px = NULL;
     if(s_state == ART_UNKNOWN) find_dir();
     if(s_state != ART_READY || s_user_off || w > MAX_COLS) return false;
-    const int set = art_set(v->level);
-    if(s_set_failed[set]) return false;
-    bool ok = true;
-    if(set != s_level || view_scale != s_scale || s_land3d_loaded != (s_rendered && land3d()))
-        ok = load_landscape(set, view_scale);
-    if(ok && (FIG->level != set || FIG->scale != view_scale))
-        ok = load_figs(set, view_scale, (float)v->rob.radius);
-    if(!ok) {
-        fprintf(stderr, "art: level %d: drawing the original look instead\n", (int)v->level + 1);
-        free_landscape();
-        free_figs(&s_figs[0]);
-        free_figs(&s_figs[1]);
-        s_set_failed[set] = true; /* not tried again; the other levels keep their pictures */
-        return false;
+    bool ok = false;
+    for(int set = art_set(v->level); set >= 0 && !ok; set = art_set(v->level)) {
+        ok = true;
+        if(set != s_level || view_scale != s_scale || s_land3d_loaded != (s_rendered && land3d()))
+            ok = load_landscape(set, view_scale);
+        if(ok && (FIG->level != set || FIG->scale != view_scale))
+            ok = load_figs(set, view_scale, (float)v->rob.radius);
+        if(!ok) {
+            /* not tried again; the other levels keep their pictures */
+            free_landscape();
+            free_figs(&s_figs[0]);
+            free_figs(&s_figs[1]);
+            s_set_failed[set] = true;
+            if(s_fallback[set] >= 0)
+                fprintf(stderr, "art: level %d: set %d missing or broken, set %d instead\n", (int)v->level + 1, set,
+                        s_fallback[set]);
+            else fprintf(stderr, "art: level %d: drawing the original look instead\n", (int)v->level + 1);
+        }
     }
+    if(!ok) return false;
     s_drawn = true;
     s_w = w;
     s_h = h;

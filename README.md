@@ -21,9 +21,22 @@ an app and works offline.
 Levels 1-10 are the original's. Level 11, Beyond the Summit, is a bonus
 level of our own: it continues their curve (longer, steeper, more
 obstacles) in the space theme at night. The run (the total time of levels
-1-10 in a row) stays the original's ten levels. Until it has pictures of
-its own, the painted look borrows level 6's space set (`art_set()` in
-`src/game/art.c`); its picker thumbnail comes from `tools/level-thumb.py`.
+1-10 in a row) stays the original's ten levels. Its picker thumbnail comes
+from `tools/level-thumb.py`.
+
+Its painted look uses its own pictures as soon as all four are in `art/`
+and can be read, and level 6's space set until then:
+
+| File | Size | Format |
+|---|---|---|
+| `bg-10.jpg` | 560 x 373 | baseline JPEG (not progressive) |
+| `tex-10.jpg` | 256 x 256 | baseline JPEG; the game mirrors it, so its edges should meet |
+| `tree-10.png` | 105 x 105 | PNG with transparency |
+| `enemy-10.png` | 33 x 33 | PNG with transparency |
+
+A set that is missing or broken only affects its own level (`art_set()`
+and `s_fallback[]` in `src/game/art.c`). The ground's lip colour for the
+set is `s_accent[10]`, for now level 6's lavender.
 
 ## How it was made
 
