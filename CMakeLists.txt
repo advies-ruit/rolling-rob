@@ -126,3 +126,11 @@ if(WIN32)
     target_link_options(rolling_rob_sim PRIVATE -mwindows -static -static-libgcc)
     set_target_properties(rolling_rob_sim PROPERTIES OUTPUT_NAME RollingRob)
 endif()
+
+# Unit tests for the rules of the games (tests/; no LVGL or SDL needed).
+# ctest --test-dir build --output-on-failure
+option(ROLLING_ROB_TESTS "Build the unit tests" ON)
+if(ROLLING_ROB_TESTS AND NOT EMSCRIPTEN)
+    enable_testing()
+    add_subdirectory(tests)
+endif()

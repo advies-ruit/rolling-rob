@@ -1,0 +1,50 @@
+# Tests and the desktop build, on every push and pull request (the web build
+# and the site are in pages.yml).
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    # The rules of the games (tests/): no LVGL, no SDL, so no submodules.
+    # With AddressSanitizer and UndefinedBehaviorSanitizer.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build
+        run: |
+          cmake -S tests -B build-tests -DCMAKE_BUILD_TYPE=Debug \
+                -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all"
+          cmake --build build-tests -j
+      - name: Test
+        run: ctest --test-dir build-tests --output-on-failure
+
+  desktop:
+    # The desktop program (SDL2) on Linux, its tests, and a run without a
+    # window: the bot has to finish all ten levels.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - name: SDL2
+        run: sudo apt-get update && sudo apt-get install -y libsdl2-dev
+      - name: Build
+        run: |
+          cmake -S . -B build
+          cmake --build build -j
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Smoke test (headless)
+        run: |
+          build/rolling_rob_sim --headless --frames 120 --out frame.raw
+          build/rolling_rob_sim --headless --app --app-key enter,10 --frames 300 --out app.raw
+          build/rolling_rob_sim --headless --bot --seed 1 --frames 200000 --out bot.raw | tee bot.txt
+          grep -q '10/10 levels finished' bot.txt
+          ! grep -q STALLED bot.txt
