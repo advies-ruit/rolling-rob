@@ -838,6 +838,7 @@ static void xform_job(int job, int tid)
     const chunk_t * ch = &s_chunks[job];
     const vis_t * vs = &s_vis[ch->vis];
     const r3_mesh * mesh = vs->mesh;
+    (void)mesh; /* only the NEON path reads it */
     cvert_t * out = s_cv + vs->cv0;
     int i = ch->a;
 #if defined(__ARM_NEON)
