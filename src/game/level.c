@@ -1,7 +1,9 @@
 #include "level.h"
 
-/* Verbatim from the original `levels[]` (finishDistance is unused there:
- * the real finish line comes out of generateMountain()). */
+/* Levels 1-10 verbatim from the original `levels[]` (finishDistance is
+ * unused there: the real finish line comes out of generateMountain()).
+ * Level 11 continues their curve (points +65, steepness +0.2, obstacles +2)
+ * in the space theme, at night. */
 const rr_level_config_t rr_levels[RR_LEVEL_COUNT] = {
     { "Beginner's Hill",    RR_THEME_FOREST,  60,  0.3f,  8, 0x87CEEB, 0x90EE90, 0x8B7355, RR_MONSTER_SLIME   },
     { "Rocky Ridge",        RR_THEME_DESERT,  85,  0.5f, 10, 0xFFB347, 0xFFA500, 0xD2691E, RR_MONSTER_CACTUS  },
@@ -13,4 +15,5 @@ const rr_level_config_t rr_levels[RR_LEVEL_COUNT] = {
     { "Insane Incline",     RR_THEME_CYBER,  310,  1.7f, 22, 0x0F0F3F, 0x1F1F6F, 0x2F2F4F, RR_MONSTER_ROBOT   },
     { "Death Descent",      RR_THEME_HELL,   365,  1.9f, 24, 0x330000, 0x660000, 0x4d0000, RR_MONSTER_DEMON   },
     { "Ultimate Challenge", RR_THEME_RAINBOW,425,  2.1f, 26, 0x9400D3, 0xFFD700, 0xFF69B4, RR_MONSTER_CRYSTAL },
+    { "Beyond the Summit",  RR_THEME_SPACE,  490,  2.3f, 28, 0x0B0B2B, 0x3A1A5E, 0x3B3B5B, RR_MONSTER_ALIEN   },
 };

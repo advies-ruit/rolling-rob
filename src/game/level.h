@@ -3,7 +3,8 @@
 
 #include <stdint.h>
 
-/* Level table, 1:1 from `levels[]` in rolling-rob.html. Colors are
+/* Level table: levels 1-10 1:1 from `levels[]` in rolling-rob.html, level
+ * 11 a bonus level of our own (outside the run of 1-10). Colors are
  * 0xRRGGBB. The theme drives the sky decoration (drawSky) and the
  * monster type drives drawMonster(). */
 
@@ -45,7 +46,10 @@ typedef struct {
     rr_monster_t monster_type;
 } rr_level_config_t;
 
-#define RR_LEVEL_COUNT 10
+#define RR_LEVEL_COUNT 11
+/* The run (the total time of levels 1-10 in a row, "run" in the save file)
+ * is the original's ten levels; the levels after it are bonus levels. */
+#define RR_RUN_LEVELS 10
 
 extern const rr_level_config_t rr_levels[RR_LEVEL_COUNT];
 

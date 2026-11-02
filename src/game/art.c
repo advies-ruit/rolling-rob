@@ -55,11 +55,25 @@ static int rob_frames(void)
 #define ROB_CY 0.540f
 #define ROB_R  0.315f
 
-/* The lip colour of the ground per level (the painted set's accent);
- * level 0 derives it from the soil itself. */
-static const uint32_t s_accent[RR_LEVEL_COUNT] = {
+/* The pictures are made for the original ten levels: art/bg-N.jpg and the
+ * rest, N = 0..9. A level after them borrows the set of a level in its
+ * theme (level 11, Beyond the Summit: level 6's space set) until it has
+ * pictures of its own. */
+#define ART_SETS 10
+static int art_set(int level)
+{
+    if(level >= 0 && level < ART_SETS) return level;
+    return 5; /* Beyond the Summit: Extreme Edge's space pictures */
+}
+
+/* The lip colour of the ground per picture set (the painted set's accent);
+ * set 0 derives it from the soil itself. */
+static const uint32_t s_accent[ART_SETS] = {
     0, 0xF4C37D, 0xF0F9ED, 0xFFAD53, 0xA5CA75, 0xA5A6D6, 0xF9DFB1, 0x78EDDA, 0xF58458, 0xF1D781,
 };
+/* Sets that failed to load (a picture missing or broken): that set draws
+ * the original look, the others keep theirs. */
+static bool s_set_failed[ART_SETS];
 
 static enum { ART_UNKNOWN, ART_READY, ART_OFF } s_state;
 static bool s_user_off = true; /* the original look is the default; A, the picker or the saved choice switch */
@@ -863,17 +877,19 @@ bool rr_art_prepare(const rr_view_t * v, float view_scale, int w, int h)
     gfx_backdrop.px = NULL;
     if(s_state == ART_UNKNOWN) find_dir();
     if(s_state != ART_READY || s_user_off || w > MAX_COLS) return false;
+    const int set = art_set(v->level);
+    if(s_set_failed[set]) return false;
     bool ok = true;
-    if(v->level != s_level || view_scale != s_scale || s_land3d_loaded != (s_rendered && land3d()))
-        ok = load_landscape(v->level, view_scale);
-    if(ok && (FIG->level != v->level || FIG->scale != view_scale))
-        ok = load_figs(v->level, view_scale, (float)v->rob.radius);
+    if(set != s_level || view_scale != s_scale || s_land3d_loaded != (s_rendered && land3d()))
+        ok = load_landscape(set, view_scale);
+    if(ok && (FIG->level != set || FIG->scale != view_scale))
+        ok = load_figs(set, view_scale, (float)v->rob.radius);
     if(!ok) {
-        fprintf(stderr, "art: drawing the original look instead\n");
+        fprintf(stderr, "art: level %d: drawing the original look instead\n", (int)v->level + 1);
         free_landscape();
         free_figs(&s_figs[0]);
         free_figs(&s_figs[1]);
-        s_state = ART_OFF;
+        s_set_failed[set] = true; /* not tried again; the other levels keep their pictures */
         return false;
     }
     s_drawn = true;
@@ -926,7 +942,7 @@ bool rr_art_prepare(const rr_view_t * v, float view_scale, int w, int h)
     if(first < 0) first = 0;
     for(int i = first; (float)i * 95.0f + 40.0f < s_cam_x + span + 200.0f && s_trees_n < 48; i++) {
         float wx = (float)i * 95.0f + 40.0f;
-        if(!tree_here(v->level, i) || wx > right) continue;
+        if(!tree_here(s_level, i) || wx > right) continue;
         const img_t * im = &s_trees[i % TREE_SIZES];
         float wy = rr_terrain_height_at(tr, wx) + 8.0f;
         s_placed_trees[s_trees_n++] = (placed_t){ im, dev_x(wx) - im->w / 2, dev_y(wy) - im->h };
@@ -1046,7 +1062,7 @@ void rr_art_ground(gfx_ctx_t * g, const rr_view_t * v)
     /* The rendered set follows the original: no grass lip, the ridge's dark
      * outline (draw.c: 4 wide, 40 % black, half of it inside the ground). */
     if(s_rendered && land3d()) lip = band = (int32_t)(3.0f * s_scale * 256.0f) > 256 ? (int32_t)(3.0f * s_scale * 256.0f) : 256;
-    uint32_t acc = s_accent[v->level];
+    uint32_t acc = s_accent[s_level];
     uint32_t ar = (acc >> 16) & 0xFF, ag = (acc >> 8) & 0xFF, ab = acc & 0xFF;
     for(int y = first_row(g, 0); y < gfx_row_end(g); y += row_step(g)) {
         int m = ((y + s_camy_px) % (2 * t) + 2 * t) % (2 * t);
@@ -1078,7 +1094,7 @@ void rr_art_ground(gfx_ctx_t * g, const rr_view_t * v)
             else if(depth < lip) {
                 /* A textured lip follows the collidable surface exactly. */
                 uint32_t grain = (c >> 8) & 0xFF, r, gg, b;
-                if(v->level == 0) {
+                if(s_level == 0) {
                     r = 62 + grain / 3;
                     gg = 91 + grain / 2;
                     b = 35 + grain / 5;

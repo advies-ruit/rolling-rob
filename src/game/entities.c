@@ -83,7 +83,7 @@ void rr_entities_generate(int32_t level, const rr_terrain_t * terrain)
 
     rr_checkpoint_count = 0;
     rr_last_checkpoint = -1;
-    if(level == 9) {
+    if(level >= 9) { /* the last levels: Ultimate Challenge and the bonus level */
         for(int32_t i = 0; i < 5; i++) {
             float x = 1500.0f + (finish_line - 1500.0f) * ((float)(i + 1) / 6.0f);
             rr_checkpoints[rr_checkpoint_count].x = x;

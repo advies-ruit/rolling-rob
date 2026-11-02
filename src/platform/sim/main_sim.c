@@ -25,6 +25,7 @@
 #include "gfx.h"
 #include "music.h"
 #include "app.h"
+#include "level.h"
 #define SDL_MAIN_HANDLED /* our own main(), no SDL2main library (Windows) */
 #include <SDL2/SDL.h>
 #ifdef __EMSCRIPTEN__
@@ -460,7 +461,7 @@ static rr_key_t parse_key(const char * s)
 static float s_debug_rob_x = -1;
 static int s_seed = -1;          /* --seed: deterministic level generation for tests */
 static bool s_bot;               /* --bot: autopilot plays the levels */
-static int s_bot_until = 10;     /* --bot-levels N: stop after level N is won */
+static int s_bot_until = RR_LEVEL_COUNT; /* --bot-levels N: stop after level N is won */
 static bool s_bot_noup;          /* --bot-noup: no UP button (real gravity, planned jumps) */
 static bool s_bot_single;        /* --bot-single: no UP and no double jump */
 static const char * s_record;    /* --record file.raw: append frames (BGRA) */

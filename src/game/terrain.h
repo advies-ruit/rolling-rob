@@ -9,8 +9,8 @@
  * Coordinates are in "world units" (the original's 1920x1080 canvas
  * space) - the renderer scales them down to the real 480x272 panel. */
 
-/* Largest level (Ultimate Challenge) has 425 ridge points + 2 closing points. */
-#define RR_TERRAIN_MAX_POINTS 427
+/* Largest level (Beyond the Summit) has 490 ridge points + 2 closing points. */
+#define RR_TERRAIN_MAX_POINTS 492
 
 typedef struct {
     float x, y;
