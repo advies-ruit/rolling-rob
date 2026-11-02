@@ -68,7 +68,7 @@ static const int8_t s_fallback[ART_SETS] = { -1, -1, -1, -1, -1, -1, -1, -1, -1,
  * set 0 derives it from the soil itself. Set 10 has set 5's lavender, the
  * same theme's, until its own pictures say otherwise. */
 static const uint32_t s_accent[ART_SETS] = {
-    0, 0xF4C37D, 0xF0F9ED, 0xFFAD53, 0xA5CA75, 0xA5A6D6, 0xF9DFB1, 0x78EDDA, 0xF58458, 0xF1D781, 0xA5A6D6,
+    0, 0xF4C37D, 0xF0F9ED, 0xFFAD53, 0xA5CA75, 0xA5A6D6, 0xF9DFB1, 0x78EDDA, 0xF58458, 0xF1D781, 0x83D7D2,
 };
 static bool s_set_failed[ART_SETS];
 
