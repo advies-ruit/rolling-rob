@@ -32,6 +32,19 @@ this source by GitHub Actions.
 
 Desktop (SDL2 installed): `cmake -S . -B build && cmake --build build -j --target rolling_rob_sim`.
 
+## Tests
+
+The rules of the games (Tetris, 2048, Snake, Breakout, Minesweeper, the
+fractals) have unit tests in `tests/`. They need neither LVGL nor SDL:
+
+    cmake -S tests -B build-tests && cmake --build build-tests -j
+    ctest --test-dir build-tests --output-on-failure
+
+They also come along with the desktop build (`ctest --test-dir build`).
+GitHub Actions (`.github/workflows/ci.yml`) runs them on every push and pull
+request, with AddressSanitizer and UBSan, builds the desktop program on Linux
+and lets the bot play all ten levels without a window.
+
 The site is built by GitHub Actions from this repository
 (`.github/workflows/pages.yml`). Every tag `v*` becomes a release (the site as
 a zip, with the SHA-256 of its files) and the site is published from all

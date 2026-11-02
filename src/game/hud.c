@@ -30,7 +30,7 @@ static int32_t s_ui_w, s_ui_h;
 static lv_obj_t * s_tiles[RR_LEVEL_THUMB_COUNT];
 static lv_obj_t * s_tile_best[RR_LEVEL_THUMB_COUNT];
 static lv_obj_t * s_time_label;
-static char s_last_time[64];
+static char s_last_time[96];
 static char s_last_message[200];
 static int32_t s_shown_level = -1;
 /* Settings tiles in the picker's free cells (after the last level). */
@@ -417,7 +417,7 @@ static void title_create(lv_obj_t * parent)
     s_title_box = lv_obj_create(parent);
     lv_obj_remove_style_all(s_title_box);
     lv_obj_set_size(s_title_box, LV_PCT(100), LV_PCT(100));
-    lv_obj_remove_flag(s_title_box, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(s_title_box, false);
     lv_obj_set_scrollable(s_title_box, false);
 #if LV_FONT_MONTSERRAT_32
     const lv_font_t * big = FONT(32);
@@ -431,7 +431,7 @@ static void title_create(lv_obj_t * parent)
     const int32_t band_h = K(136), edge = K(24);
     lv_obj_t * band = lv_obj_create(s_title_box);
     lv_obj_remove_style_all(band);
-    lv_obj_remove_flag(band, LV_OBJ_FLAG_CLICKABLE); /* taps go through to the canvas */
+    lv_obj_set_clickable(band, false); /* taps go through to the canvas */
     lv_obj_set_size(band, LV_PCT(100), band_h - 2 * edge);
     lv_obj_align(band, LV_ALIGN_CENTER, 0, 0);
     lv_obj_set_style_bg_color(band, lv_color_black(), 0);
@@ -439,7 +439,7 @@ static void title_create(lv_obj_t * parent)
     for(int i = 0; i < 2; i++) {
         lv_obj_t * fade = lv_obj_create(s_title_box);
         lv_obj_remove_style_all(fade);
-        lv_obj_remove_flag(fade, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_clickable(fade, false);
         lv_obj_set_size(fade, LV_PCT(100), edge);
         lv_obj_align(fade, LV_ALIGN_CENTER, 0, i == 0 ? -(band_h - edge) / 2 : (band_h - edge) / 2);
         lv_obj_set_style_bg_opa(fade, LV_OPA_COVER, 0);
@@ -466,7 +466,7 @@ static void title_create(lv_obj_t * parent)
     s_title_prompt = lv_obj_create(s_title_box);
     lv_obj_remove_style_all(s_title_prompt);
     lv_obj_set_size(s_title_prompt, K(300), K(20));
-    lv_obj_remove_flag(s_title_prompt, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(s_title_prompt, false);
     lv_obj_align(s_title_prompt, LV_ALIGN_CENTER, 0, K(40));
     make_shadow_label(s_title_prompt, "Tap or press Space to start", FONT(12), GOLD,
                       LV_ALIGN_CENTER, 0, 0, NULL);
@@ -535,7 +535,7 @@ void hud_create(lv_obj_t * parent)
     s_hud_box = lv_obj_create(screen);
     lv_obj_remove_style_all(s_hud_box);
     lv_obj_set_size(s_hud_box, LV_PCT(100), LV_PCT(100));
-    lv_obj_remove_flag(s_hud_box, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(s_hud_box, false);
     lv_obj_set_scrollable(s_hud_box, false);
     parent = s_hud_box;
 
@@ -657,7 +657,7 @@ void hud_update(void)
     }
 
     {
-        char t[24], b[24], r[24], line[80];
+        char t[24], b[24], r[24], line[96]; /* three times of 23 and the words: fits */
         format_ms(t, sizeof(t), game_get_level_time_ms());
         int32_t best = game_get_best_time_ms(game_get_level());
         if(best > 0) format_ms(b, sizeof(b), best);

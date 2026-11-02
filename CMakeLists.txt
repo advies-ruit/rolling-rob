@@ -66,7 +66,14 @@ else()
     target_link_libraries(rolling_rob_game PUBLIC lvgl m Threads::Threads)
 endif()
 target_include_directories(rolling_rob_game PUBLIC src/game)
-target_compile_options(rolling_rob_game PRIVATE -Wall -Wextra -Wno-unused-parameter)
+# Warnings for our own code (not LVGL's); ROLLING_ROB_WERROR makes them
+# errors (CI does).
+option(ROLLING_ROB_WERROR "Treat warnings in Rolling Rob's own code as errors" OFF)
+set(RR_WARNINGS -Wall -Wextra -Wno-unused-parameter)
+if(ROLLING_ROB_WERROR)
+    list(APPEND RR_WARNINGS -Werror)
+endif()
+target_compile_options(rolling_rob_game PRIVATE ${RR_WARNINGS})
 
 set(RR_COMMON_DEFS
     ROLLING_ROB_SCREEN_WIDTH=${ROLLING_ROB_SCREEN_WIDTH}
@@ -88,6 +95,7 @@ set(RR_APP_SOURCES src/app/app.c src/app/tetris_view.c src/tetris/tetris.c
 add_executable(rolling_rob_sim src/platform/sim/main_sim.c src/platform/sim/bot.c
                src/platform/sim/music.c src/platform/sim/app_info_sdl.c
                ${RR_APP_SOURCES})
+target_compile_options(rolling_rob_sim PRIVATE ${RR_WARNINGS})
 target_include_directories(rolling_rob_sim PRIVATE third_party/miniaudio src/app src/tetris src/g2048 src/r3d src/snake src/breakout src/mines src/fractal src/platform/sim)
 target_compile_definitions(rolling_rob_sim PRIVATE
     ROLLING_ROB_TARGET_SIM=1
@@ -125,4 +133,12 @@ if(WIN32)
     # Windows (mingw-w64 cross build): a GUI program linked fully static.
     target_link_options(rolling_rob_sim PRIVATE -mwindows -static -static-libgcc)
     set_target_properties(rolling_rob_sim PROPERTIES OUTPUT_NAME RollingRob)
+endif()
+
+# Unit tests for the rules of the games (tests/; no LVGL or SDL needed).
+# ctest --test-dir build --output-on-failure
+option(ROLLING_ROB_TESTS "Build the unit tests" ON)
+if(ROLLING_ROB_TESTS AND NOT EMSCRIPTEN)
+    enable_testing()
+    add_subdirectory(tests)
 endif()

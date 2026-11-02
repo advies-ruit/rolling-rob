@@ -269,6 +269,10 @@ static void carry_job(int job, int tid)
         uint8_t * l = s_lvl + (size_t)y * s_iw;
         int oy = s_map_y[y];
         int a = oy < 0 ? s_iw : xa, b = oy < 0 ? s_iw : xb;
+        /* both are in 0..s_iw already (moved()); said so for the compiler,
+         * which otherwise warns that the memsets below could go negative */
+        if(a < 0 || a > s_iw) a = s_iw;
+        if(b < 0 || b > s_iw) b = s_iw;
         for(int x = 0; x < a; x++) v[x] = FR_UNKNOWN;
         for(int x = b; x < s_iw; x++) v[x] = FR_UNKNOWN;
         memset(l, LVL_NONE, (size_t)a);
@@ -1002,7 +1006,7 @@ static void update_info(void)
     if(zoom < 1e4) snprintf(z, sizeof(z), "%.0f", zoom);
     else snprintf(z, sizeof(z), "%.1e", zoom);
     fr_view_t v = pic_view();
-    char state[48];
+    char state[64]; /* room for two ints of any size in the longest text */
     if(s_auto) {
         if(s_tour_waiting && s_tour_dir > 0 && s_tour_hold <= 0)
             snprintf(state, sizeof(state), "#ffd700 demo zoom: computing picture %d of %d#", s_kf_done + 1, s_kf_n);
