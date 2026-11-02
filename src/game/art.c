@@ -59,14 +59,14 @@ static int rob_frames(void)
  * enemy-N.png, N = level - 1. A set that is missing or broken (any of its
  * pictures cannot be read or decoded) is not tried again this session; its
  * level then draws the fallback set if it has one (level 11, Beyond the
- * Summit: level 6's space set, until its own pictures are there), else the
- * original look. Either way the other levels keep their pictures. */
+ * Summit: level 6's space set, should its own pictures be missing or
+ * broken), else the original look. Either way the other levels keep their pictures. */
 #define ART_SETS RR_LEVEL_COUNT
 static const int8_t s_fallback[ART_SETS] = { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 5 };
 
 /* The lip colour of the ground per picture set (the painted set's accent);
- * set 0 derives it from the soil itself. Set 10 has set 5's lavender, the
- * same theme's, until its own pictures say otherwise. */
+ * set 0 derives it from the soil itself. Set 10's teal is taken from its
+ * glowing plants. */
 static const uint32_t s_accent[ART_SETS] = {
     0, 0xF4C37D, 0xF0F9ED, 0xFFAD53, 0xA5CA75, 0xA5A6D6, 0xF9DFB1, 0x78EDDA, 0xF58458, 0xF1D781, 0x83D7D2,
 };

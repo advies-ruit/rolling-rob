@@ -24,8 +24,9 @@ obstacles) in the space theme at night. The run (the total time of levels
 1-10 in a row) stays the original's ten levels. Its picker thumbnail comes
 from `tools/level-thumb.py`.
 
-Its painted look uses its own pictures as soon as all four are in `art/`
-and can be read, and level 6's space set until then:
+Its painted look has pictures of its own (a starry sky, alien ground, a
+glowing space plant and an alien). Should one of the four be missing or
+unreadable, the level draws level 6's space set instead:
 
 | File | Size | Format |
 |---|---|---|
@@ -36,7 +37,7 @@ and can be read, and level 6's space set until then:
 
 A set that is missing or broken only affects its own level (`art_set()`
 and `s_fallback[]` in `src/game/art.c`). The ground's lip colour for the
-set is `s_accent[10]`, for now level 6's lavender.
+set is `s_accent[10]`, a teal taken from its plants.
 
 ## How it was made
 
