@@ -37,7 +37,7 @@ unreadable, the level draws level 6's space set instead:
 
 A set that is missing or broken only affects its own level (`art_set()`
 and `s_fallback[]` in `src/game/art.c`). The ground's lip colour for the
-set is `s_accent[10]`, a teal taken from its plants.
+set is `s_accent[10]`, a teal that matches its plants.
 
 ## How it was made
 
