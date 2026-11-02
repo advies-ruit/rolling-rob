@@ -33,8 +33,11 @@ static lv_obj_t * s_time_label;
 static char s_last_time[96];
 static char s_last_message[200];
 static int32_t s_shown_level = -1;
-/* Settings tiles in the picker's free cells (after the last level). */
+/* Settings tiles in the picker's free cells (after the last level). With
+ * eleven levels one cell is left: both groups then share it, two by two,
+ * with short labels (s_settings_compact). */
 static bool s_art_tile;
+static bool s_settings_compact;
 static lv_obj_t * s_music_label;
 static lv_obj_t * s_art_label;
 static lv_obj_t * s_fps_label;
@@ -112,6 +115,14 @@ static void picker_update_selection(void)
         lv_obj_set_style_border_color(s_tiles[i], sel ? GOLD : lv_color_make(0x55, 0x55, 0x55), 0);
         lv_obj_set_style_border_width(s_tiles[i], sel ? K(2) : K(1), 0);
         lv_obj_set_style_bg_color(s_tiles[i], i == cur ? lv_color_make(0x33, 0x2E, 0x10) : lv_color_make(0x20, 0x20, 0x20), 0);
+    }
+    if(s_settings_compact) {
+        if(s_music_label) lv_label_set_text(s_music_label, game_music_enabled() ? LV_SYMBOL_AUDIO " On" : LV_SYMBOL_MUTE " Off");
+        if(s_art_label)
+            lv_label_set_text(s_art_label, !rr_art_enabled() ? LV_SYMBOL_IMAGE " Orig."
+                                           : rr_art_rendered() ? LV_SYMBOL_IMAGE " Rend." : LV_SYMBOL_IMAGE " Paint");
+        if(s_fps_label) lv_label_set_text(s_fps_label, game_fps_enabled() ? LV_SYMBOL_EYE_OPEN " FPS" : LV_SYMBOL_EYE_CLOSE " FPS");
+        return;
     }
     if(s_music_label)
         lv_label_set_text(s_music_label, game_music_enabled() ? LV_SYMBOL_AUDIO "  Music: on" : LV_SYMBOL_MUTE "  Music: off");
@@ -366,6 +377,20 @@ static void picker_create(void)
      * web builds offer: music on/off + next track, and the art look (which
      * otherwise needs the A key, absent on a phone). */
     int32_t cell = RR_LEVEL_THUMB_COUNT;
+    s_settings_compact = game_music_available() && s_art_tile && cell == cols * 3 - 1;
+    if(s_settings_compact) {
+        /* one cell for both: music and next track above, look and FPS below */
+        int32_t x = x0 + (cell % cols) * cell_w, y = y0 + (cell / cols) * cell_h;
+        int32_t bw = (cell_w - K(10)) / 2, bh = (cell_h - K(8)) / 2;
+        s_music_label = settings_button(board, x, y, bw, bh, music_tile_cb);
+        lv_obj_t * nl = settings_button(board, x + bw + K(4), y, bw, bh, next_track_cb);
+        lv_label_set_text(nl, LV_SYMBOL_NEXT " Next");
+        s_art_label = settings_button(board, x, y + bh + K(4), bw, bh, art_tile_cb);
+        s_fps_label = settings_button(board, x + bw + K(4), y + bh + K(4), bw, bh, fps_tile_cb);
+        lv_obj_t * labels[] = { s_music_label, nl, s_art_label, s_fps_label };
+        for(int32_t k = 0; k < 4; k++) lv_obj_set_style_text_font(labels[k], FONT(11), 0);
+        cell = cols * 3;
+    }
     if(game_music_available() && cell < cols * 3) {
         int32_t x = x0 + (cell % cols) * cell_w, y = y0 + (cell / cols) * cell_h;
         int32_t bh = (cell_h - K(8)) / 2;

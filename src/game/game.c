@@ -408,7 +408,7 @@ static void timer_finish(void)
     if(s_run_next_level == s_level) {
         s_run_total_ms += s_level_time_ms;
         s_run_next_level = s_level + 1;
-        if(s_level == RR_LEVEL_COUNT - 1) {
+        if(s_level == RR_RUN_LEVELS - 1) { /* the run is levels 1-10; level 11 is a bonus */
             if(s_best_run_ms == 0 || s_run_total_ms < s_best_run_ms) {
                 s_best_run_ms = s_run_total_ms;
                 record = true;

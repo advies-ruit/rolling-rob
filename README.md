@@ -16,6 +16,15 @@ an app and works offline.
   <img src="docs/level-4.webp" width="32%" alt="Level 4 in the painted look">
 </p>
 
+## Level 11
+
+Levels 1-10 are the original's. Level 11, Beyond the Summit, is a bonus
+level of our own: it continues their curve (longer, steeper, more
+obstacles) in the space theme at night. The run (the total time of levels
+1-10 in a row) stays the original's ten levels. Until it has pictures of
+its own, the painted look borrows level 6's space set (`art_set()` in
+`src/game/art.c`); its picker thumbnail comes from `tools/level-thumb.py`.
+
 ## How it was made
 
 A port of the original Rolling Rob (vader.nl) to C with LVGL, written with the
@@ -43,7 +52,7 @@ fractals) have unit tests in `tests/`. They need neither LVGL nor SDL:
 They also come along with the desktop build (`ctest --test-dir build`).
 GitHub Actions (`.github/workflows/ci.yml`) runs them on every push and pull
 request, with AddressSanitizer and UBSan, builds the desktop program on Linux
-and lets the bot play all ten levels without a window.
+and lets the bot play all eleven levels without a window.
 
 The site is built by GitHub Actions from this repository
 (`.github/workflows/pages.yml`). Every tag `v*` becomes a release (the site as

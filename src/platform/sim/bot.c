@@ -1,6 +1,7 @@
 #include "bot.h"
 #include "game.h"
 #include "entities.h"
+#include "level.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -25,8 +26,8 @@
 static bot_mode_t s_mode;
 static int32_t s_max_jumps = 2; /* 1 in BOT_MODE_SINGLE */
 static int32_t s_until_level;
-static int32_t s_deaths[10];
-static int32_t s_times_ms[10];
+static int32_t s_deaths[RR_LEVEL_COUNT];
+static int32_t s_times_ms[RR_LEVEL_COUNT];
 static int32_t s_cur_level;
 static int32_t s_charge_frames;
 static int32_t s_won_frames;
@@ -34,7 +35,7 @@ static int32_t s_over_frames;
 static int32_t s_space_release_at; /* frame at which to release Space (edge-trigger) */
 static bool s_done;
 static bool s_reported_win;
-static bool s_stalled[10];
+static bool s_stalled[RR_LEVEL_COUNT];
 static float s_best_x;
 static int32_t s_stall_frames;
 #define STALL_LIMIT 900 /* 15 s without gaining ground = stuck */
@@ -333,12 +334,12 @@ void bot_init(int32_t until_level, bot_mode_t mode)
     tune_from_env();
     s_until_level = until_level;
     s_cur_level = game_get_level();
-    for(int32_t i = 0; i < 10; i++) { s_deaths[i] = 0; s_times_ms[i] = 0; }
+    for(int32_t i = 0; i < RR_LEVEL_COUNT; i++) { s_deaths[i] = 0; s_times_ms[i] = 0; }
     s_charge_frames = s_won_frames = s_over_frames = 0;
     s_space_release_at = -1;
     s_done = false;
     s_reported_win = false;
-    for(int32_t i = 0; i < 10; i++) s_stalled[i] = false;
+    for(int32_t i = 0; i < RR_LEVEL_COUNT; i++) s_stalled[i] = false;
     s_best_x = 0;
     s_stall_frames = 0;
 }
@@ -452,7 +453,7 @@ void bot_print_report(void)
            s_mode == BOT_MODE_NOUP ? "no UP button: real gravity" : "UP held: glide");
     printf("level  time      deaths\n");
     int32_t finished = 0, stalled = 0;
-    for(int32_t i = 0; i < 10; i++) {
+    for(int32_t i = 0; i < RR_LEVEL_COUNT; i++) {
         if(s_times_ms[i] == 0 && s_deaths[i] == 0 && !s_stalled[i]) continue;
         printf("%-6d %3d.%03d s   %-6d %s\n", (int)i + 1, (int)s_times_ms[i] / 1000, (int)s_times_ms[i] % 1000,
                (int)s_deaths[i], s_times_ms[i] > 0 ? "" : (s_stalled[i] ? "STALLED" : "unfinished"));
@@ -461,7 +462,7 @@ void bot_print_report(void)
         if(s_times_ms[i] > 0) finished++;
         if(s_stalled[i]) stalled++;
     }
-    printf("total  %3d.%03d s   %d deaths, %d/10 levels finished%s\n",
-           (int)total / 1000, (int)total % 1000, (int)deaths, (int)finished,
+    printf("total  %3d.%03d s   %d deaths, %d/%d levels finished%s\n",
+           (int)total / 1000, (int)total % 1000, (int)deaths, (int)finished, RR_LEVEL_COUNT,
            stalled ? " (STALLED - total is meaningless)" : "");
 }

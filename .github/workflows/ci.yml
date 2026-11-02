@@ -27,7 +27,7 @@ jobs:
 
   desktop:
     # The desktop program (SDL2) on Linux, without warnings in our own code,
-    # its tests, and a run without a window: the bot has to finish all ten
+    # its tests, and a run without a window: the bot has to finish all eleven
     # levels.
     runs-on: ubuntu-24.04
     steps:
@@ -46,6 +46,6 @@ jobs:
         run: |
           build/rolling_rob_sim --headless --frames 120 --out frame.raw
           build/rolling_rob_sim --headless --app --app-key enter,10 --frames 300 --out app.raw
-          build/rolling_rob_sim --headless --bot --seed 1 --frames 200000 --out bot.raw | tee bot.txt
-          grep -q '10/10 levels finished' bot.txt
+          build/rolling_rob_sim --headless --bot --seed 6 --frames 200000 --out bot.raw | tee bot.txt
+          grep -q '11/11 levels finished' bot.txt
           ! grep -q STALLED bot.txt

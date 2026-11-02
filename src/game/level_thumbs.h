@@ -6,7 +6,7 @@
 /* Level thumbnails shown in the level picker. level_thumbs.c is generated
  * from headless simulator renders. */
 
-#define RR_LEVEL_THUMB_COUNT 10
+#define RR_LEVEL_THUMB_COUNT 11
 #define RR_LEVEL_THUMB_W 108
 #define RR_LEVEL_THUMB_H 61
 
