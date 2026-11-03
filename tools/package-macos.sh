@@ -1,8 +1,10 @@
 #!/bin/sh
 # macOS app of the desktop program: "Rolling Rob.app", universal (Apple
 # silicon and Intel), SDL2 linked in, art/ and music/ in Contents/Resources,
-# zipped. Not notarized: signed ad hoc only, so the first start needs a
-# right-click -> Open (or System Settings -> Privacy & Security -> Open).
+# zipped. Not notarized: signed ad hoc only, so macOS refuses the first
+# start; then System Settings -> Privacy & Security -> "Open Anyway" (a
+# right-click -> Open no longer does it since macOS 15), or remove the
+# quarantine: xattr -dr com.apple.quarantine "Rolling Rob.app".
 #   tools/package-macos.sh <build dir> <out dir> [version]
 # The build dir holds rolling_rob_sim, built universal against a universal
 # static SDL2:

@@ -64,7 +64,7 @@ where each package is started and the bot plays all levels with it):
 | Download | For | |
 |---|---|---|
 | `Rolling-Rob-Windows-x64.zip` | Windows 10/11, x64 | unzip, start `RollingRob.exe` |
-| `Rolling-Rob-macOS.zip` | macOS 11+, Apple silicon and Intel | unzip; not notarized: the first time right-click -> Open |
+| `Rolling-Rob-macOS.zip` | macOS 11+, Apple silicon and Intel | unzip; not notarized, see below |
 | `Rolling-Rob-Linux-x86_64.AppImage` | Linux, x86-64 | `chmod +x`, start |
 | `Rolling-Rob-Linux-aarch64.AppImage` | Raspberry Pi (64-bit Raspberry Pi OS), Linux arm64 | `chmod +x`, start |
 | `Rolling-Rob-Linux-armhf.AppImage` | Raspberry Pi 2, 3, 4, 5, Zero 2 with 32-bit Raspberry Pi OS (ARMv7) | `chmod +x`, start |
@@ -72,6 +72,12 @@ where each package is started and the bot plays all levels with it):
 SDL2, the art and the music are inside each one. The packaging is in
 `tools/package-linux.sh`, `tools/package-windows.sh` and
 `tools/package-macos.sh`.
+
+The macOS app is signed ad hoc but not notarized (that needs a paid Apple
+developer account), so macOS refuses it the first time: choose "Done" (not
+"Move to Trash"), then System Settings -> Privacy & Security -> "Open
+Anyway", and open it again. Since macOS 15 a right-click -> Open no longer
+does this. Or, in Terminal: `xattr -dr com.apple.quarantine "Rolling Rob.app"`.
 
 The Linux AppImages are built in Debian 11 (`tools/build-linux.sh`), so
 they need glibc 2.31 or newer: Debian 11+, Ubuntu 20.04+, Raspberry Pi OS 11
