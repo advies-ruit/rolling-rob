@@ -82,7 +82,7 @@ static int art_set(int level)
 }
 
 static enum { ART_UNKNOWN, ART_READY, ART_OFF } s_state;
-static bool s_user_off = true; /* the original look is the default; A, the picker or the saved choice switch */
+static bool s_user_off = false; /* the painted look is the default (where art/ is); A, the picker or a saved choice switch */
 static char s_dir[512];
 /* The rendered set (made separately): the directory next to s_dir with "-3d"
  * added. It holds what it renders; everything else comes from s_dir. */
