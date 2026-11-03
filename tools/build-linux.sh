@@ -34,5 +34,5 @@ grep -E 'SDL_VIDEO_DRIVER_(X11|WAYLAND|KMSDRM)|SDL_AUDIO_DRIVER_(ALSA|PULSEAUDIO
 
 cmake -S . -B "$BUILD" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$SDL" -DROLLING_ROB_SDL2_STATIC=ON \
   -DROLLING_ROB_TESTS=OFF -DROLLING_ROB_VERSION="${RR_VERSION:-}"
-cmake --build "$BUILD" -j"$(nproc)"
+cmake --build "$BUILD" -j"$(nproc)" --target rolling_rob_sim # not LVGL's examples and demos
 strip "$BUILD/rolling_rob_sim"
