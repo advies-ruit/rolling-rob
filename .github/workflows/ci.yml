@@ -49,3 +49,8 @@ jobs:
           build/rolling_rob_sim --headless --bot --seed 6 --frames 200000 --out bot.raw | tee bot.txt
           grep -q '11/11 levels finished' bot.txt
           ! grep -q STALLED bot.txt
+
+  packages:
+    # The packages players download (Linux AppImage x86-64 and arm64,
+    # Windows x64, macOS universal), built and started on each system.
+    uses: ./.github/workflows/packages.yml

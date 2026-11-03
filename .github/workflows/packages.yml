@@ -1,0 +1,150 @@
+# The desktop program, packaged for players: a Linux AppImage (x86-64, and
+# arm64 for a Raspberry Pi with 64-bit Raspberry Pi OS), a Windows x64 zip
+# and a universal macOS app. Each package is started on its own system and
+# the bot has to finish all levels with it, from another folder (so the
+# art and music inside the package are what it uses).
+# Called by ci.yml (every push and pull request: built and tested only)
+# and pages.yml (a tag: the packages go into the release).
+name: Packages
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'The release tag the packages carry (empty: git describe)'
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+env:
+  SDL2_VERSION: 2.32.10
+  # the bot run every package makes; it has to print "N/N levels finished"
+  BOT: --headless --bot --seed 6 --frames 300000 --out bot.raw
+
+jobs:
+  linux:
+    # Ubuntu 22.04: an AppImage needs at least the glibc it was built with,
+    # and 22.04's is older than Raspberry Pi OS 12's (2.35 < 2.36).
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            arch: x86_64
+          - runner: ubuntu-22.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - name: Tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y libsdl2-dev
+          curl -sSfL -o linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-${{ matrix.arch }}.AppImage
+          chmod +x linuxdeploy
+      - name: Build
+        run: |
+          cmake -S . -B build -DROLLING_ROB_TESTS=OFF -DROLLING_ROB_VERSION="${{ inputs.version }}"
+          cmake --build build -j
+      - name: Package
+        run: tools/package-linux.sh build out
+        env:
+          LINUXDEPLOY: ${{ github.workspace }}/linuxdeploy
+      - name: Bot run with the AppImage
+        run: |
+          mkdir elsewhere && cd elsewhere
+          ../out/Rolling-Rob-Linux-${{ matrix.arch }}.AppImage --appimage-extract-and-run $BOT | tee bot.txt
+          grep -Eq '([0-9]+)/\1 levels finished' bot.txt
+          ! grep -q STALLED bot.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: package-linux-${{ matrix.arch }}
+          path: out/Rolling-Rob-Linux-${{ matrix.arch }}.AppImage
+          if-no-files-found: error
+
+  windows:
+    # cross-compiled with mingw-w64, SDL2 linked in: one exe, nothing to install
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - name: Tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y mingw-w64 zip
+          curl -sSfL https://github.com/libsdl-org/SDL/releases/download/release-$SDL2_VERSION/SDL2-devel-$SDL2_VERSION-mingw.tar.gz | tar -xz
+      - name: Build
+        run: |
+          cmake -S . -B build-win -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-mingw64.cmake \
+                -DCMAKE_PREFIX_PATH="$PWD/SDL2-$SDL2_VERSION/x86_64-w64-mingw32" -DROLLING_ROB_SDL2_STATIC=ON \
+                -DROLLING_ROB_TESTS=OFF -DROLLING_ROB_WERROR=ON -DROLLING_ROB_VERSION="${{ inputs.version }}"
+          cmake --build build-win -j
+      - name: Package
+        run: tools/package-windows.sh build-win out
+      - uses: actions/upload-artifact@v7
+        with:
+          name: package-windows-x64
+          path: out/Rolling-Rob-Windows-x64.zip
+          if-no-files-found: error
+
+  windows-test:
+    needs: windows
+    runs-on: windows-2025
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: package-windows-x64
+      - name: Bot run with the exe
+        run: |
+          unzip -q Rolling-Rob-Windows-x64.zip
+          mkdir elsewhere && cd elsewhere
+          "../Rolling Rob/RollingRob.exe" $BOT > bot.txt 2>&1 || { cat bot.txt; exit 1; }
+          cat bot.txt
+          grep -Eq '([0-9]+)/\1 levels finished' bot.txt
+          ! grep -q STALLED bot.txt
+
+  macos:
+    # universal (arm64 + x86_64) against a universal static SDL2 built here
+    runs-on: macos-15
+    env:
+      ARCHS: arm64;x86_64
+      MACOSX_DEPLOYMENT_TARGET: '11.0'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - name: SDL2 (universal, static)
+        run: |
+          curl -sSfL https://github.com/libsdl-org/SDL/releases/download/release-$SDL2_VERSION/SDL2-$SDL2_VERSION.tar.gz | tar -xz
+          cmake -S SDL2-$SDL2_VERSION -B sdl-build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="$ARCHS" \
+                -DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_TEST=OFF -DCMAKE_INSTALL_PREFIX="$PWD/sdl2"
+          cmake --build sdl-build -j && cmake --install sdl-build
+      - name: Build
+        run: |
+          cmake -S . -B build-mac -DCMAKE_OSX_ARCHITECTURES="$ARCHS" -DCMAKE_PREFIX_PATH="$PWD/sdl2" \
+                -DROLLING_ROB_SDL2_STATIC=ON -DROLLING_ROB_TESTS=OFF -DROLLING_ROB_WERROR=ON \
+                -DROLLING_ROB_VERSION="${{ inputs.version }}"
+          cmake --build build-mac -j
+      - name: Package
+        run: tools/package-macos.sh build-mac out "${{ inputs.version }}"
+      - name: Bot run with the app (Apple silicon, and Intel through Rosetta)
+        run: |
+          mkdir elsewhere && cd elsewhere
+          ditto -x -k ../out/Rolling-Rob-macOS.zip .
+          for arch in arm64 x86_64; do
+            if [ $arch = x86_64 ] && ! arch -x86_64 /usr/bin/true 2>/dev/null; then echo "no Rosetta here: x86_64 not run"; continue; fi
+            arch -$arch "Rolling Rob.app/Contents/MacOS/RollingRob" $BOT | tee bot-$arch.txt
+            grep -Eq '([0-9]+)/\1 levels finished' bot-$arch.txt
+            ! grep -q STALLED bot-$arch.txt
+          done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: package-macos
+          path: out/Rolling-Rob-macOS.zip
+          if-no-files-found: error

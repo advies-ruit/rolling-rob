@@ -147,9 +147,22 @@ if(EMSCRIPTEN)
     set_target_properties(rolling_rob_sim PROPERTIES OUTPUT_NAME index SUFFIX ".html"
         LINK_DEPENDS ${CMAKE_SOURCE_DIR}/web/shell.html)
 else()
+    # The packaged Windows and macOS builds link SDL2 in (tools/package-*.sh),
+    # so the program needs nothing installed next to it.
+    option(ROLLING_ROB_SDL2_STATIC "Link SDL2 statically" OFF)
     find_package(SDL2 REQUIRED)
-    target_link_libraries(lvgl PUBLIC SDL2::SDL2)
-    target_link_libraries(rolling_rob_sim PRIVATE rolling_rob_game SDL2::SDL2)
+    if(ROLLING_ROB_SDL2_STATIC)
+        set(RR_SDL2 SDL2::SDL2-static)
+    else()
+        set(RR_SDL2 SDL2::SDL2)
+    endif()
+    target_link_libraries(lvgl PUBLIC ${RR_SDL2})
+    # lv_conf.h includes "SDL2/SDL.h": also the directory above SDL2/ (some
+    # SDL2 packages, e.g. the mingw one, only put include/SDL2 on the path)
+    if(SDL2_INCLUDE_DIRS)
+        target_include_directories(lvgl PUBLIC ${SDL2_INCLUDE_DIRS})
+    endif()
+    target_link_libraries(rolling_rob_sim PRIVATE rolling_rob_game ${RR_SDL2})
 endif()
 if(WIN32)
     # Windows (mingw-w64 cross build): a GUI program linked fully static.

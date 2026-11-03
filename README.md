@@ -57,6 +57,21 @@ this source by GitHub Actions.
 
 Desktop (SDL2 installed): `cmake -S . -B build && cmake --build build -j --target rolling_rob_sim`.
 
+Every release also has the desktop program for players, built by GitHub
+Actions (`.github/workflows/packages.yml`, also on every pull request,
+where each package is started and the bot plays all levels with it):
+
+| Download | For | |
+|---|---|---|
+| `Rolling-Rob-Windows-x64.zip` | Windows 10/11, x64 | unzip, start `RollingRob.exe` |
+| `Rolling-Rob-macOS.zip` | macOS 11+, Apple silicon and Intel | unzip; not notarized: the first time right-click -> Open |
+| `Rolling-Rob-Linux-x86_64.AppImage` | Linux, x86-64 | `chmod +x`, start |
+| `Rolling-Rob-Linux-aarch64.AppImage` | Raspberry Pi (64-bit Raspberry Pi OS), Linux arm64 | `chmod +x`, start |
+
+SDL2, the art and the music are inside each one. The packaging is in
+`tools/package-linux.sh`, `tools/package-windows.sh` and
+`tools/package-macos.sh`.
+
 ## Tests
 
 The rules of the games (Tetris, 2048, Snake, Breakout, Minesweeper, the
