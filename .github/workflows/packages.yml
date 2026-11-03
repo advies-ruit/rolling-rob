@@ -20,7 +20,8 @@ permissions:
 
 env:
   SDL2_VERSION: 2.32.10
-  # the bot run every package makes; it has to print "N/N levels finished"
+  # the bot run every package makes; check.sh then wants all levels finished
+  # and the painted art loaded from the package
   BOT: --headless --bot --seed 6 --frames 300000 --out bot.raw
 
 jobs:
@@ -56,9 +57,8 @@ jobs:
       - name: Bot run with the AppImage
         run: |
           mkdir elsewhere && cd elsewhere
-          ../out/Rolling-Rob-Linux-${{ matrix.arch }}.AppImage --appimage-extract-and-run $BOT | tee bot.txt
-          grep -Eq '([0-9]+)/\1 levels finished' bot.txt
-          ! grep -q STALLED bot.txt
+          ../out/Rolling-Rob-Linux-${{ matrix.arch }}.AppImage --appimage-extract-and-run $BOT 2>&1 | tee bot.txt
+          sh ../tools/check-bot-run.sh bot.txt
       - uses: actions/upload-artifact@v7
         with:
           name: package-linux-${{ matrix.arch }}
@@ -97,6 +97,11 @@ jobs:
       run:
         shell: bash
     steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: tools/check-bot-run.sh
+          sparse-checkout-cone-mode: false
+          path: src
       - uses: actions/download-artifact@v8
         with:
           name: package-windows-x64
@@ -106,8 +111,7 @@ jobs:
           mkdir elsewhere && cd elsewhere
           "../Rolling Rob/RollingRob.exe" $BOT > bot.txt 2>&1 || { cat bot.txt; exit 1; }
           cat bot.txt
-          grep -Eq '([0-9]+)/\1 levels finished' bot.txt
-          ! grep -q STALLED bot.txt
+          sh ../src/tools/check-bot-run.sh bot.txt
 
   macos:
     # universal (arm64 + x86_64) against a universal static SDL2 built here
@@ -139,9 +143,8 @@ jobs:
           ditto -x -k ../out/Rolling-Rob-macOS.zip .
           for arch in arm64 x86_64; do
             if [ $arch = x86_64 ] && ! arch -x86_64 /usr/bin/true 2>/dev/null; then echo "no Rosetta here: x86_64 not run"; continue; fi
-            arch -$arch "Rolling Rob.app/Contents/MacOS/RollingRob" $BOT | tee bot-$arch.txt
-            grep -Eq '([0-9]+)/\1 levels finished' bot-$arch.txt
-            ! grep -q STALLED bot-$arch.txt
+            arch -$arch "Rolling Rob.app/Contents/MacOS/RollingRob" $BOT 2>&1 | tee bot-$arch.txt
+            sh ../tools/check-bot-run.sh bot-$arch.txt
           done
       - uses: actions/upload-artifact@v7
         with:

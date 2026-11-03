@@ -472,6 +472,7 @@ static bool s_music_ui;          /* --music-ui: show the music/art tiles without
 
 static int run_headless(int frames, const char * out_path, int level)
 {
+    find_data(); /* as a window does: a package started from another folder finds its art */
     if(!s_save_given) game_set_save_path("/dev/null");
     lv_init();
     lv_tick_set_cb(fake_tick_cb);
