@@ -220,7 +220,7 @@ static bool open_path(const char * path, bool loop, bool snap)
     ma_decoder * dec = NULL;
     void * data = NULL;
     if(path) {
-        size_t size;
+        size_t size = 0; /* read_file leaves it alone when it fails */
         data = read_file(path, &size);
         dec = malloc(sizeof(*dec));
         ma_decoder_config cfg = ma_decoder_config_init(ma_format_f32, 2, (ma_uint32)s_rate);
