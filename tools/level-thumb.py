@@ -40,7 +40,7 @@ def main():
         # and no best times or other choices from a player's save.
         save = os.path.join(tmp, "save.txt")
         with open(save, "w") as f:
-            f.write("art 0 %d\n" % (1 if painted else 0))
+            f.write("art 0 %d\nlook 0 1\n" % (1 if painted else 0))  # "look": the art line is a choice
         env = dict(os.environ)
         env.pop("ROLLING_ROB_ART", None)  # art/ in the repository root
         subprocess.run([os.path.abspath(os.path.join(build, "rolling_rob_sim")), "--headless", "--no-hud",

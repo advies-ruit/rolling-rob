@@ -65,6 +65,10 @@ static int32_t s_run_next_level = -1;/* level index the active run expects next;
 static int32_t s_run_total_ms;
 static int32_t s_best_run_ms;
 static char s_save_path[512];
+/* The player chose the look (A, the picker, the menu): only then does the
+ * saved "art" line count. Saves from before this ("art" without "look")
+ * get the default, the painted look. */
+static bool s_look_chosen;
 #define STEP_TO_MS(steps) ((int32_t)((int64_t)(steps) * 1000 / 60))
 #define RESET_LOCKOUT_MS 700.0f      /* ignore reset presses right after dying */
 static int32_t s_auto_advance_steps, s_distance_m;
@@ -354,20 +358,24 @@ static void times_load(void)
     FILE * fp = fopen(s_save_path, "r");
     if(!fp) return;
     char key[16];
-    int lv, ms;
+    int lv, ms, art = -1;
+    bool chosen = false;
     while(fscanf(fp, "%15s %d %d", key, &lv, &ms) == 3) {
         if(strcmp(key, "best") == 0 && lv >= 1 && lv <= RR_LEVEL_COUNT) s_best_ms[lv - 1] = ms;
         else if(strcmp(key, "run") == 0) s_best_run_ms = ms;
-        else if(strcmp(key, "art") == 0) {
-            rr_art_set_enabled(ms != 0);
-            rr_art_set_rendered(ms == 2);
-        }
+        else if(strcmp(key, "art") == 0) art = ms;
+        else if(strcmp(key, "look") == 0) chosen = ms != 0;
         else if(strcmp(key, "music") == 0) s_music_on = ms != 0;
         else if(strcmp(key, "volume") == 0 && ms >= 0 && ms <= 100) s_music_volume = ms;
         else if(strcmp(key, "order") == 0 && ms >= 0 && ms < RR_MUSIC_ORDERS) s_music_order = (rr_music_order_t)ms;
         else if(strcmp(key, "fps") == 0) s_fps_on = ms != 0;
     }
     fclose(fp);
+    if(chosen && art >= 0) {
+        rr_art_set_enabled(art != 0);
+        rr_art_set_rendered(art == 2);
+        s_look_chosen = true;
+    }
 }
 
 static void times_save(void)
@@ -381,6 +389,7 @@ static void times_save(void)
     if(s_best_run_ms > 0) fprintf(fp, "run 0 %d\n", (int)s_best_run_ms);
     /* the original look 0, painted art 1, rendered 2 */
     fprintf(fp, "art 0 %d\n", !rr_art_enabled() ? 0 : rr_art_rendered() ? 2 : 1);
+    if(s_look_chosen) fprintf(fp, "look 0 1\n"); /* the "art" line is the player's choice */
     fprintf(fp, "music 0 %d\n", s_music_on ? 1 : 0);
     if(s_music_volume >= 0) fprintf(fp, "volume 0 %d\n", s_music_volume);
     fprintf(fp, "order 0 %d\n", (int)s_music_order);
@@ -750,6 +759,7 @@ void game_input_key(rr_key_t key, bool pressed)
                     rr_art_set_enabled(false);
                     rr_art_set_rendered(false);
                 }
+                s_look_chosen = true;
                 times_save();
             }
             down = pressed;

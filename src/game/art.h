@@ -14,9 +14,10 @@
  * game itself is untouched; everything else (beam, fireballs, flags, text,
  * particles, buttons) stays the original drawing.
  *
- * The files are looked for in $ROLLING_ROB_ART, else ./art. ROLLING_ROB_ART=0
- * or a missing file gives the original look; the A key switches at run time
- * and the choice is kept with the best times (game.c).
+ * The files are looked for in $ROLLING_ROB_ART, else ./art. The painted
+ * look is the default; ROLLING_ROB_ART=0 or a missing file gives the
+ * original look; the A key switches at run time and a choice is kept with
+ * the best times (game.c).
  * Everything is scaled once, when a level is first drawn at a view scale, so
  * a frame only copies and blends pixels.
  */
