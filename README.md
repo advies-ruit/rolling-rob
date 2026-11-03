@@ -57,6 +57,36 @@ this source by GitHub Actions.
 
 Desktop (SDL2 installed): `cmake -S . -B build && cmake --build build -j --target rolling_rob_sim`.
 
+Every release also has the desktop program for players, built by GitHub
+Actions (`.github/workflows/packages.yml`, also on every pull request,
+where each package is started and the bot plays all levels with it):
+
+| Download | For | |
+|---|---|---|
+| `Rolling-Rob-Windows-x64.zip` | Windows 10/11, x64 | unzip, start `RollingRob.exe` |
+| `Rolling-Rob-macOS.zip` | macOS 11+, Apple silicon and Intel | unzip; not notarized, see below |
+| `Rolling-Rob-Linux-x86_64.AppImage` | Linux, x86-64 | `chmod +x`, start |
+| `Rolling-Rob-Linux-aarch64.AppImage` | Raspberry Pi (64-bit Raspberry Pi OS), Linux arm64 | `chmod +x`, start |
+| `Rolling-Rob-Linux-armhf.AppImage` | Raspberry Pi 2, 3, 4, 5, Zero 2 with 32-bit Raspberry Pi OS (ARMv7) | `chmod +x`, start |
+
+SDL2, the art and the music are inside each one. The packaging is in
+`tools/package-linux.sh`, `tools/package-windows.sh` and
+`tools/package-macos.sh`.
+
+The macOS app is signed ad hoc but not notarized (that needs a paid Apple
+developer account), so macOS refuses it the first time: choose "Done" (not
+"Move to Trash"), then System Settings -> Privacy & Security -> "Open
+Anyway", and open it again. Since macOS 15 a right-click -> Open no longer
+does this. Or, in Terminal: `xattr -dr com.apple.quarantine "Rolling Rob.app"`.
+
+The Linux AppImages are built in Debian 11 (`tools/build-linux.sh`), so
+they need glibc 2.31 or newer: Debian 11+, Ubuntu 20.04+, Raspberry Pi OS 11
+("Bullseye") and newer. `tools/check-glibc.sh` checks every file in them for
+that, and the bot plays them in Debian 11. They use the static AppImage
+runtime, so no libfuse is needed; where FUSE is missing altogether, start one
+with `--appimage-extract-and-run`. The 32-bit ARM one needs ARMv7 (not a
+Raspberry Pi 1 or Zero).
+
 ## Tests
 
 The rules of the games (Tetris, 2048, Snake, Breakout, Minesweeper, the
