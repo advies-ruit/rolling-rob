@@ -73,6 +73,14 @@ SDL2, the art and the music are inside each one. The packaging is in
 `tools/package-linux.sh`, `tools/package-windows.sh` and
 `tools/package-macos.sh`.
 
+The desktop program picks its resolution like the web page's Auto: as many
+of the screen's own pixels as its window has -- 960x544 on a plain screen,
+1920x1088 on a Retina Mac (it asks for the screen's own pixels, on Windows
+at 125-150 % too). A Raspberry Pi stays lower: 480x272 on 32-bit, at most
+960x544 on 64-bit, as its CPU draws every pixel. Rolling Rob's page in the
+menu has "Resolution" (auto, or 480x272 up to 1920x1088), used from the next
+start; `--scale 1..4` on the command line overrides it.
+
 The macOS app is signed ad hoc but not notarized (that needs a paid Apple
 developer account), so macOS refuses it the first time: choose "Done" (not
 "Move to Trash"), then System Settings -> Privacy & Security -> "Open

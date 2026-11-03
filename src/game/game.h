@@ -126,6 +126,13 @@ const char * game_music_playing(int32_t * pos_ms);
  * platform shows it. */
 bool game_fps_enabled(void);
 void game_set_fps_enabled(bool on);           /* saves the choice */
+/* The desktop program's picture size: 0 = chosen from the screen (auto),
+ * else 1-4 times the 480x272 LCD; read at start (main_sim.c), so a change
+ * takes effect at the next start. game_load_settings reads the saved
+ * choices early, before the window exists. */
+int game_scale_choice(void);
+void game_set_scale_choice(int k);            /* saves the choice */
+void game_load_settings(void);
 
 /* Title screen (desktop and web builds). The
  * camera glides slowly over a random level with no HUD and no buttons; a tap,

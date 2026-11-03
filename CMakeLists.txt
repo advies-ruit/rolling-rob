@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.18)
 project(rolling_rob C)
 
 set(CMAKE_C_STANDARD 11)
@@ -157,6 +157,10 @@ else()
         set(RR_SDL2 SDL2::SDL2)
     endif()
     target_link_libraries(lvgl PUBLIC ${RR_SDL2})
+    # LVGL makes its SDL window itself, without asking for the screen's own
+    # pixels; main_sim.c's rr_sdl_create_window adds SDL_WINDOW_ALLOW_HIGHDPI.
+    set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/third_party/lvgl/src/drivers/sdl/lv_sdl_window.c
+        TARGET_DIRECTORY lvgl PROPERTIES COMPILE_DEFINITIONS "SDL_CreateWindow=rr_sdl_create_window")
     # lv_conf.h includes "SDL2/SDL.h": also the directory above SDL2/ (some
     # SDL2 packages, e.g. the mingw one, only put include/SDL2 on the path)
     if(SDL2_INCLUDE_DIRS)
