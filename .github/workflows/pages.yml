@@ -81,6 +81,7 @@ jobs:
           - **macOS** (Apple silicon and Intel, 11 or newer): unzip Rolling-Rob-macOS.zip; the app is not notarized, so open it the first time with right-click -> Open
           - **Linux** (x86-64) and **Raspberry Pi** (64-bit Raspberry Pi OS): Rolling-Rob-Linux-x86_64.AppImage or Rolling-Rob-Linux-aarch64.AppImage; make it executable (chmod +x) and start it
           - **Raspberry Pi with 32-bit Raspberry Pi OS** (Pi 2, 3, 4, 5, Zero 2): Rolling-Rob-Linux-armhf.AppImage; the Pi 1 and Zero (ARMv6) are not supported
+          - The Linux AppImages need glibc 2.31 or newer: Debian 11+, Ubuntu 20.04+, Raspberry Pi OS 11 (Bullseye) and newer
           NOTES
           gh release create "$GITHUB_REF_NAME" Rolling-Rob-* SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" --notes-file notes.md

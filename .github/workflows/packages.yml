@@ -1,6 +1,7 @@
 # The desktop program, packaged for players: a Linux AppImage (x86-64,
 # arm64 for a Raspberry Pi with 64-bit Raspberry Pi OS, and armhf for one
-# with 32-bit Raspberry Pi OS), a Windows x64 zip and a universal macOS app. Each package is started on its own system and
+# with 32-bit Raspberry Pi OS; glibc 2.31 or newer), a Windows x64 zip and a
+# universal macOS app. Each package is started on its own system and
 # the bot has to finish all levels with it, from another folder (so the
 # art and music inside the package are what it uses).
 # Called by ci.yml (every push and pull request: built and tested only)
@@ -26,78 +27,69 @@ env:
 
 jobs:
   linux:
-    # Ubuntu 22.04: an AppImage needs at least the glibc it was built with,
-    # and 22.04's is older than Raspberry Pi OS 12's (2.35 < 2.36).
+    # Built and tested in Debian 11 ("bullseye", glibc 2.31) of each target
+    # (tools/build-linux.sh): the AppImage then runs on Debian 11+, Ubuntu
+    # 20.04+ and Raspberry Pi OS 11 ("Bullseye") and newer. tools/check-glibc.sh
+    # makes sure no file in it needs a newer glibc, and the bot run happens
+    # in Debian 11 too. armhf (32-bit ARM, ARMv7: Raspberry Pi 2, 3, 4, 5 and
+    # Zero 2 with 32-bit Raspberry Pi OS) has no GitHub runner -- its ARM CPUs
+    # run no 32-bit code -- so it is emulated (QEMU), the slowest job by far.
     strategy:
       fail-fast: false
       matrix:
         include:
-          - runner: ubuntu-22.04
-            arch: x86_64
-          - runner: ubuntu-22.04-arm
-            arch: aarch64
+          - arch: x86_64
+            runner: ubuntu-24.04
+            platform: linux/amd64
+            tool: x86_64
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            tool: aarch64
+          - arch: armhf
+            runner: ubuntu-24.04
+            platform: linux/arm/v7
+            tool: x86_64
+            emulated: true
     runs-on: ${{ matrix.runner }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          submodules: true
-      - name: Tools
-        run: |
-          sudo apt-get update && sudo apt-get install -y libsdl2-dev
-          curl -sSfL -o linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-${{ matrix.arch }}.AppImage
-          chmod +x linuxdeploy
-      - name: Build
-        run: |
-          cmake -S . -B build -DROLLING_ROB_TESTS=OFF -DROLLING_ROB_VERSION="${{ inputs.version }}"
-          cmake --build build -j
-      - name: Package
-        run: tools/package-linux.sh build out
-        env:
-          LINUXDEPLOY: ${{ github.workspace }}/linuxdeploy
-      - name: Bot run with the AppImage
-        run: |
-          mkdir elsewhere && cd elsewhere
-          ../out/Rolling-Rob-Linux-${{ matrix.arch }}.AppImage --appimage-extract-and-run $BOT 2>&1 | tee bot.txt
-          sh ../tools/check-bot-run.sh bot.txt
-      - uses: actions/upload-artifact@v7
-        with:
-          name: package-linux-${{ matrix.arch }}
-          path: out/Rolling-Rob-Linux-${{ matrix.arch }}.AppImage
-          if-no-files-found: error
-
-  linux-armhf:
-    # 32-bit ARM (ARMv7: Raspberry Pi 2, 3, 4, 5 and Zero 2 with 32-bit
-    # Raspberry Pi OS). GitHub has no 32-bit ARM runner (its ARM CPUs run no
-    # 32-bit code), so it is built and tested emulated (QEMU) in Debian 12,
-    # 32-bit ARM: Raspberry Pi OS 12 is built on it (the same glibc, 2.36).
-    # The slowest job by far.
-    runs-on: ubuntu-24.04
+    env:
+      IMAGE: debian:bullseye
+      GLIBC_MAX: '2.31'
     steps:
       - uses: actions/checkout@v7
         with:
           submodules: true
       - uses: docker/setup-qemu-action@v4
+        if: matrix.emulated
         with:
           platforms: arm
-      - name: Build, package and bot run (Debian 12, armhf, emulated)
+      - name: Build (Debian 11, ${{ matrix.platform }})
         run: |
-          docker run --rm --platform linux/arm/v7 -v "$PWD:/src" -w /src \
-            -e RR_VERSION="${{ inputs.version }}" -e BOT="$BOT" debian:bookworm bash -euxc '
-              apt-get update -qq
-              apt-get install -y -qq --no-install-recommends build-essential cmake git libsdl2-dev curl ca-certificates file >/dev/null
-              git config --global --add safe.directory /src
-              cmake -S . -B build-armhf -DROLLING_ROB_TESTS=OFF -DROLLING_ROB_VERSION="$RR_VERSION"
-              cmake --build build-armhf -j"$(nproc)"
-              curl -sSfL -o /tmp/linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-armhf.AppImage
-              chmod +x /tmp/linuxdeploy
-              LINUXDEPLOY=/tmp/linuxdeploy tools/package-linux.sh build-armhf out
-              mkdir -p elsewhere && cd elsewhere
-              ../out/Rolling-Rob-Linux-armhf.AppImage --appimage-extract-and-run $BOT 2>&1 | tee bot.txt
-              sh ../tools/check-bot-run.sh bot.txt'
+          docker run --rm --platform ${{ matrix.platform }} -v "$PWD:/src" -w /src \
+            -e SDL2_VERSION -e RR_VERSION="${{ inputs.version }}" $IMAGE sh tools/build-linux.sh build-linux
+      - name: Package
+        run: |
+          base=https://github.com/AppImage
+          curl -sSfL -o appimagetool $base/appimagetool/releases/download/continuous/appimagetool-${{ matrix.tool }}.AppImage
+          curl -sSfL -o runtime $base/type2-runtime/releases/download/continuous/runtime-${{ matrix.arch }}
+          chmod +x appimagetool
+          sudo chown -R "$(id -u)" build-linux
+          tools/package-linux.sh build-linux out ${{ matrix.arch }}
+        env:
+          APPIMAGETOOL: ${{ github.workspace }}/appimagetool
+          RUNTIME: ${{ github.workspace }}/runtime
+      - name: glibc needed, and a bot run with the AppImage (Debian 11)
+        run: |
+          docker run --rm --platform ${{ matrix.platform }} -v "$PWD:/src" -w /src -e BOT -e GLIBC_MAX $IMAGE bash -euc '
+            apt-get update -qq && apt-get install -y -qq --no-install-recommends binutils >/dev/null
+            sh tools/check-glibc.sh build-linux/AppDir "$GLIBC_MAX"
+            mkdir -p elsewhere && cd elsewhere
+            ../out/Rolling-Rob-Linux-${{ matrix.arch }}.AppImage --appimage-extract-and-run $BOT 2>&1 | tee bot.txt
+            sh ../tools/check-bot-run.sh bot.txt'
       - uses: actions/upload-artifact@v7
         with:
-          name: package-linux-armhf
-          path: out/Rolling-Rob-Linux-armhf.AppImage
+          name: package-linux-${{ matrix.arch }}
+          path: out/Rolling-Rob-Linux-${{ matrix.arch }}.AppImage
           if-no-files-found: error
 
   windows:
