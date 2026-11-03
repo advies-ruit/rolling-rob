@@ -97,6 +97,28 @@ add_executable(rolling_rob_sim src/platform/sim/main_sim.c src/platform/sim/bot.
                ${RR_APP_SOURCES})
 target_compile_options(rolling_rob_sim PRIVATE ${RR_WARNINGS})
 target_include_directories(rolling_rob_sim PRIVATE third_party/miniaudio src/app src/tetris src/g2048 src/r3d src/snake src/breakout src/mines src/fractal src/platform/sim)
+# Which build this is, for the app's info page: the release tag (passed by
+# tools/build-web.sh, else git describe), the commit and the build time.
+# Only app_info_sdl.c gets them, so a new value rebuilds that one file.
+if(NOT ROLLING_ROB_VERSION)
+    execute_process(COMMAND git describe --tags --always --dirty WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+                    OUTPUT_VARIABLE ROLLING_ROB_VERSION OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+endif()
+if(NOT ROLLING_ROB_VERSION)
+    set(ROLLING_ROB_VERSION "dev")
+endif()
+execute_process(COMMAND git rev-parse --short=7 HEAD WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+                OUTPUT_VARIABLE RR_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+if(NOT RR_COMMIT)
+    set(RR_COMMIT "unknown")
+endif()
+if(NOT ROLLING_ROB_BUILT)
+    string(TIMESTAMP ROLLING_ROB_BUILT "%d %b %Y %H:%M UTC" UTC)
+endif()
+set_source_files_properties(src/platform/sim/app_info_sdl.c PROPERTIES COMPILE_DEFINITIONS
+    "RR_VERSION=\"${ROLLING_ROB_VERSION}\";RR_COMMIT=\"${RR_COMMIT}\";RR_BUILT=\"${ROLLING_ROB_BUILT}\"")
+message(STATUS "Rolling Rob ${ROLLING_ROB_VERSION} (${RR_COMMIT}), built ${ROLLING_ROB_BUILT}")
+
 target_compile_definitions(rolling_rob_sim PRIVATE
     ROLLING_ROB_TARGET_SIM=1
     ROLLING_ROB_SIM_ZOOM=${ROLLING_ROB_SIM_ZOOM}

@@ -33,6 +33,8 @@ jobs:
           version: 6.0.10
       - name: Build
         run: tools/build-web.sh
+        env:
+          RR_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
       - name: Checksums and zip
         run: |
           cd build-web/web && sha256sum * | tee ../SHA256SUMS.txt

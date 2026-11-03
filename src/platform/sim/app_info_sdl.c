@@ -51,17 +51,18 @@ void app_info_fill(bool open)
     int w, h, k, most;
     app_picture(&w, &h, &k);
     int fingers = app_fingers(&most);
-    SDL_Renderer * r = lv_sdl_window_get_renderer(app_display());
+    /* the headless display (--headless) is no SDL window: it has no renderer */
+    lv_display_t * disp = app_display();
+    SDL_Renderer * r = disp && lv_display_get_driver_data(disp) ? lv_sdl_window_get_renderer(disp) : NULL;
     SDL_RendererInfo ri = { 0 };
     if(r) SDL_GetRendererInfo(r, &ri);
     bool gl = ri.name && strcmp(ri.name, "software") != 0;
 
     put(0, "#THIS APP", "");
-#ifdef __EMSCRIPTEN__
-    put(0, "Version", "%s", web("version"));
-#else
-    put(0, "Built", "%s", __DATE__);
-#endif
+    /* set by CMakeLists.txt (the release tag, its commit, when it was built) */
+    put(0, "Version", "%s", RR_VERSION);
+    put(0, "Built", "%s", RR_BUILT);
+    put(0, "Commit", "%s", RR_COMMIT);
     put(0, "Picture", "%dx%d (%dx LCD)", w, h, k);
     put(0, "Frame rate", "%.1f fps", (double)app_fps());
     put(0, "Busy/frame", "%.1f ms of 16.7", (double)app_loop_ms());
