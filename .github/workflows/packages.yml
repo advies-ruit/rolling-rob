@@ -1,6 +1,6 @@
-# The desktop program, packaged for players: a Linux AppImage (x86-64, and
-# arm64 for a Raspberry Pi with 64-bit Raspberry Pi OS), a Windows x64 zip
-# and a universal macOS app. Each package is started on its own system and
+# The desktop program, packaged for players: a Linux AppImage (x86-64,
+# arm64 for a Raspberry Pi with 64-bit Raspberry Pi OS, and armhf for one
+# with 32-bit Raspberry Pi OS), a Windows x64 zip and a universal macOS app. Each package is started on its own system and
 # the bot has to finish all levels with it, from another folder (so the
 # art and music inside the package are what it uses).
 # Called by ci.yml (every push and pull request: built and tested only)
@@ -63,6 +63,41 @@ jobs:
         with:
           name: package-linux-${{ matrix.arch }}
           path: out/Rolling-Rob-Linux-${{ matrix.arch }}.AppImage
+          if-no-files-found: error
+
+  linux-armhf:
+    # 32-bit ARM (ARMv7: Raspberry Pi 2, 3, 4, 5 and Zero 2 with 32-bit
+    # Raspberry Pi OS). GitHub has no 32-bit ARM runner (its ARM CPUs run no
+    # 32-bit code), so it is built and tested emulated (QEMU) in Debian 12,
+    # 32-bit ARM: Raspberry Pi OS 12 is built on it (the same glibc, 2.36).
+    # The slowest job by far.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - uses: docker/setup-qemu-action@v4
+        with:
+          platforms: arm
+      - name: Build, package and bot run (Debian 12, armhf, emulated)
+        run: |
+          docker run --rm --platform linux/arm/v7 -v "$PWD:/src" -w /src \
+            -e RR_VERSION="${{ inputs.version }}" -e BOT="$BOT" debian:bookworm bash -euxc '
+              apt-get update -qq
+              apt-get install -y -qq --no-install-recommends build-essential cmake git libsdl2-dev curl ca-certificates file >/dev/null
+              git config --global --add safe.directory /src
+              cmake -S . -B build-armhf -DROLLING_ROB_TESTS=OFF -DROLLING_ROB_VERSION="$RR_VERSION"
+              cmake --build build-armhf -j"$(nproc)"
+              curl -sSfL -o /tmp/linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-armhf.AppImage
+              chmod +x /tmp/linuxdeploy
+              LINUXDEPLOY=/tmp/linuxdeploy tools/package-linux.sh build-armhf out
+              mkdir -p elsewhere && cd elsewhere
+              ../out/Rolling-Rob-Linux-armhf.AppImage --appimage-extract-and-run $BOT 2>&1 | tee bot.txt
+              sh ../tools/check-bot-run.sh bot.txt'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: package-linux-armhf
+          path: out/Rolling-Rob-Linux-armhf.AppImage
           if-no-files-found: error
 
   windows:

@@ -67,6 +67,7 @@ where each package is started and the bot plays all levels with it):
 | `Rolling-Rob-macOS.zip` | macOS 11+, Apple silicon and Intel | unzip; not notarized: the first time right-click -> Open |
 | `Rolling-Rob-Linux-x86_64.AppImage` | Linux, x86-64 | `chmod +x`, start |
 | `Rolling-Rob-Linux-aarch64.AppImage` | Raspberry Pi (64-bit Raspberry Pi OS), Linux arm64 | `chmod +x`, start |
+| `Rolling-Rob-Linux-armhf.AppImage` | Raspberry Pi 2, 3, 4, 5, Zero 2 with 32-bit Raspberry Pi OS (ARMv7) | `chmod +x`, start |
 
 SDL2, the art and the music are inside each one. The packaging is in
 `tools/package-linux.sh`, `tools/package-windows.sh` and

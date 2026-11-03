@@ -1,7 +1,7 @@
 #!/bin/sh
 # Linux AppImage of the desktop program: one file that runs on most
-# distributions (and on Raspberry Pi OS, 64-bit), with SDL2, art/ and
-# music/ inside.
+# distributions (and on Raspberry Pi OS, 64-bit and 32-bit), with SDL2,
+# art/ and music/ inside.
 #   tools/package-linux.sh <build dir> <out dir>
 # The build dir holds rolling_rob_sim (cmake --build). Needs linuxdeploy
 # for this machine's architecture ($LINUXDEPLOY, else linuxdeploy on PATH).
@@ -12,6 +12,9 @@ cd "$(dirname "$0")/.."
 BUILD=${1:?build dir}
 OUT=${2:?out dir}
 ARCH=$(uname -m)
+# 32-bit ARM reports armv7l; AppImage tools (and Debian) call it armhf
+case "$ARCH" in armv7l|armv8l) ARCH=armhf ;; esac
+export ARCH
 LINUXDEPLOY=${LINUXDEPLOY:-linuxdeploy}
 APPDIR="$BUILD/AppDir"
 rm -rf "$APPDIR" && mkdir -p "$APPDIR/usr/bin" "$OUT"
