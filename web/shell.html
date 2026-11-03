@@ -44,6 +44,10 @@
   #status { color: var(--dim); min-height: 1.4em; }
   #bar { width: min(320px, 80vw); height: 6px; background: #2a2f2a; border-radius: 3px; overflow: hidden; }
   #bar > div { height: 100%; width: 0; background: var(--gold); transition: width .2s; }
+  #reload { font: inherit; font-size: 14px; font-weight: 600; color: #111; background: var(--gold);
+    border: 0; border-radius: 6px; padding: 8px 20px; cursor: pointer; }
+  #notice { color: #e0b050; font-size: 13px; max-width: 460px; }
+  #notice:empty { display: none; }
   #play { font: inherit; font-size: 18px; font-weight: 600; color: #111; background: var(--gold);
     border: 0; border-radius: 6px; padding: 12px 32px; cursor: pointer; display: none; }
   /* Resolution: the game draws at 1x-4x the panel's 480x272, same view. */
@@ -89,6 +93,8 @@
   <div id="bar"><div></div></div>
   <div id="status">Loading…</div>
   <button id="play">Play</button>
+  <button id="reload" class="hidden">Reload</button>
+  <div id="notice"></div>
   <div id="res" role="group" aria-label="Resolution"><span>Resolution</span></div>
   <div id="offline"></div>
   <div id="version"></div>
@@ -200,6 +206,58 @@
   var statusEl = document.getElementById('status');
   var barEl = document.querySelector('#bar > div');
   var playBtn = document.getElementById('play');
+  var reloadBtn = document.getElementById('reload');
+  var noticeEl = document.getElementById('notice');
+
+  /* Saved times and choices live in IndexedDB, one database shared by every
+   * version on the site. savesLoaded: they were read at the start; only then
+   * is anything written back -- writing the empty /save of a page that has
+   * not read them (still loading, or the database did not answer) would
+   * erase the stored ones. */
+  var savesLoaded = false;
+  function persist(done) {
+    var finished = false;
+    function end() { if (!finished) { finished = true; if (done) done(); } }
+    if (!savesLoaded) { end(); return; }
+    try { FS.syncfs(false, function () { end(); }); } catch (e) { end(); }
+    if (done) setTimeout(end, 1500); /* never wait long for it */
+  }
+  /* Leaving this page within the same browser process (another version,
+   * an update): the saves first, then the database closed and the game and
+   * its sound stopped. Otherwise the next page can wait forever for
+   * IndexedDB, which this page still holds -- on iOS only killing the app
+   * set it free -- and a page left in the back/forward cache keeps its
+   * memory. */
+  function leave(then) {
+    persist(function () {
+      try { IDBFS.quit(); } catch (e) {}
+      try { if (clicked) Module._emscripten_pause_main_loop(); } catch (e) {}
+      try { var a = Module.SDL2 && Module.SDL2.audioContext; if (a) a.close(); } catch (e) {}
+      then();
+    });
+  }
+  /* Loading must never stop without a word: a failure shows itself, with a
+   * way out. */
+  var failed = false;
+  function showReload() { reloadBtn.classList.remove('hidden'); }
+  reloadBtn.addEventListener('click', function () { reloadBtn.disabled = true; leave(function () { location.reload(); }); });
+  function fail(msg) {
+    failed = true;
+    statusEl.textContent = 'Error: ' + msg;
+    overlay.classList.remove('hidden');
+    showReload();
+  }
+  var slowTimer = 0, dataDone = false, armSaveGuard = null;
+  function watchStart() {
+    dataDone = true;
+    if (armSaveGuard) armSaveGuard();
+    if (slowTimer || ready) return;
+    slowTimer = setTimeout(function () {
+      if (ready || failed) return;
+      statusEl.textContent = 'Starting takes longer than expected.';
+      showReload();
+    }, 15000);
+  }
 
   /* Resolution: 1x (the 480x272 LCD the game was made for) up to 4x. The
    * world view scales with it, so every choice shows and plays the same;
@@ -278,15 +336,38 @@
       FS.mkdir('/save');
       FS.mount(IDBFS, {}, '/save');
       Module.addRunDependency('save');
-      FS.syncfs(true, function () { Module.removeRunDependency('save'); });
+      /* The database can fail to answer (iOS, after a page that held it);
+       * then start without the saves rather than wait forever. */
+      var settled = false;
+      function settle(ok, why) {
+        if (settled) return;
+        settled = true;
+        savesLoaded = ok;
+        if (!ok) noticeEl.textContent = why + ' Nothing is saved until the next start.';
+        Module.removeRunDependency('save');
+      }
+      /* counted from when the game data is all there: until then waiting costs nothing */
+      var guard = 0;
+      armSaveGuard = function () {
+        if (guard || settled) return;
+        guard = setTimeout(function () {
+          settle(false, 'Your best times could not be read this time (the browser\'s storage did not answer); ' +
+            'close the app or browser and open it again to get them back.');
+        }, 5000);
+      };
+      if (dataDone) armSaveGuard();
+      FS.syncfs(true, function (err) {
+        clearTimeout(guard);
+        settle(!err, 'Your best times could not be read (' + err + ').');
+      });
       /* ?volume=0..100 and ?music=0 map to the desktop's environment variables. */
       var q = new URLSearchParams(location.search);
       if (q.has('volume')) ENV.ROLLING_ROB_MUSIC_VOLUME = q.get('volume');
       if (q.get('music') === '0') ENV.ROLLING_ROB_MUSIC = '0';
     }],
     postRun: [function () {
-      setInterval(function () { FS.syncfs(false, function () {}); }, 3000);
-      window.addEventListener('pagehide', function () { FS.syncfs(false, function () {}); });
+      setInterval(function () { persist(); }, 3000);
+      window.addEventListener('pagehide', function () { persist(); });
       fit();
     }],
     print: function (t) { console.log(t); },
@@ -295,13 +376,22 @@
       var m = t && t.match(/\((\d+(?:\.\d+)?)\/(\d+)\)/);
       if (m) {
         barEl.style.width = (100 * m[1] / m[2]).toFixed(1) + '%';
+        if (+m[1] >= +m[2]) watchStart(); /* all there: now it should start soon */
         statusEl.textContent = 'Loading… ' + (m[2] / 1048576).toFixed(1) + ' MB';
       } else if (t) {
         statusEl.textContent = t;
       }
     },
-    monitorRunDependencies: function () {}
+    monitorRunDependencies: function () {},
+    onAbort: function (what) { fail(String(what)); }
   };
+  /* A failure inside a promise (the data download, the WebAssembly start)
+   * passes window.onerror by; while loading it is fatal, so say so. */
+  window.addEventListener('unhandledrejection', function (e) {
+    var r = e.reason;
+    if (!ready) fail(r && r.message ? r.message : String(r));
+    else console.warn('unhandled rejection', r);
+  });
 
   /* Browsers only start audio after a user gesture, so the game starts from
    * a button: loading runs in the background, the click starts main(). */
@@ -309,6 +399,9 @@
   Module.noInitialRun = true;
   Module.onRuntimeInitialized = function () {
     ready = true;
+    clearTimeout(slowTimer);
+    failed = false; /* it did start: whatever went wrong on the way did not stop it */
+    reloadBtn.classList.add('hidden');
     barEl.parentNode.classList.add('hidden');
     statusEl.textContent = '';
     playBtn.style.display = 'block';
@@ -409,8 +502,7 @@
     navigator.serviceWorker.addEventListener('controllerchange', function () {
       if (reloading || !asked) return;
       reloading = true;
-      try { FS.syncfs(false, function () { location.reload(); }); } catch (e) {}
-      setTimeout(function () { location.reload(); }, 1500);
+      leave(function () { location.reload(); });
     });
     navigator.serviceWorker.register('sw.js').then(function (reg) {
       var own = new URL('sw.js', location.href).href; /* rr-version: own worker only */
@@ -460,8 +552,10 @@
         if (tag) localStorage.setItem('rr-version', tag);
         else localStorage.removeItem('rr-version');
       } catch (e) {}
-      try { FS.syncfs(false, function () {}); } catch (e) {}
-      location.href = root + (tag ? 'v/' + encodeURIComponent(tag) + '/' : '') + location.search;
+      var url = root + (tag ? 'v/' + encodeURIComponent(tag) + '/' : '') + location.search;
+      box.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+      /* replace: this page is not kept for "back", so it need not stay in memory */
+      leave(function () { location.replace(url); });
     }
     function add(label, tag, on) {
       var b = document.createElement('button');
@@ -481,7 +575,7 @@
       if (here !== null) add('Back to newest', null, false); /* offline: no list */
     });
   })();
-  window.onerror = function (msg) { statusEl.textContent = 'Error: ' + msg; overlay.classList.remove('hidden'); };
+  window.onerror = function (msg) { fail(msg); };
   fit();
 </script>
 {{{ SCRIPT }}}
