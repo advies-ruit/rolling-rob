@@ -31,6 +31,7 @@
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 #endif
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -46,7 +47,9 @@
 #define ROLLING_ROB_VIEW_SCALE 0.25f
 #endif
 
-static int s_k = 1; /* --scale */
+static int s_k = 1; /* --scale, or chosen at start (choose_size) */
+static bool s_scale_given; /* --scale */
+static bool s_zoom_given;  /* --zoom */
 #define SCR_W (ROLLING_ROB_SCREEN_WIDTH * s_k)
 #define SCR_H (ROLLING_ROB_SCREEN_HEIGHT * s_k)
 #define VIEW_SCALE (ROLLING_ROB_VIEW_SCALE * (float)s_k)
@@ -220,6 +223,14 @@ bool app_key_held(int k)
 static int SDLCALL event_filter(void * user, SDL_Event * e)
 {
     LV_UNUSED(user);
+#ifndef __EMSCRIPTEN__
+    /* The picture has a fixed size (choose_size), and the window can't be
+     * dragged to another. A window the system resized -- LVGL first makes
+     * it the picture's size, too big for the screen at x4, before the zoom
+     * shrinks it -- must not reach LVGL, which would take window size /
+     * zoom as its new resolution and show only part of the picture. */
+    if(e->type == SDL_WINDOWEVENT && e->window.event == SDL_WINDOWEVENT_RESIZED) return 0;
+#endif
     if(e->type == SDL_KEYDOWN && !e->key.repeat && e->key.keysym.scancode < SDL_NUM_SCANCODES) {
         s_key_latch[e->key.keysym.scancode] = true;
         int k = app_key_of(e->key.keysym.scancode);
@@ -342,6 +353,70 @@ static void find_data(void)
 #endif
 }
 
+bool sim_scale_choosable(void)
+{
+#ifdef __EMSCRIPTEN__
+    return false; /* the page chooses (web/shell.html, Resolution) */
+#else
+    return true;
+#endif
+}
+int sim_scale_now(void) { return s_k; }
+
+#ifndef __EMSCRIPTEN__
+/* SDL windows with the screen's own pixels. LVGL creates its window itself
+ * and asks for no high resolution, so on a Retina Mac (or a Windows laptop
+ * at 150 %) the system enlarged a picture of half the size. CMakeLists.txt
+ * compiles LVGL's lv_sdl_window.c with SDL_CreateWindow renamed to this. */
+SDL_Window * SDLCALL rr_sdl_create_window(const char * title, int x, int y, int w, int h, Uint32 flags)
+{
+    return SDL_CreateWindow(title, x, y, w, h, flags | SDL_WINDOW_ALLOW_HIGHDPI);
+}
+
+/* The picture size (s_k: 1-4 times the 480x272 LCD) and the window zoom
+ * (window points per picture pixel). The window is ROLLING_ROB_SIM_ZOOM
+ * times the LCD (or --zoom), made smaller where the screen is small. The
+ * picture: --scale, else the saved choice (the Resolution line on Rolling
+ * Rob's page), else auto -- as many screen pixels as the window has, like
+ * the web page's Auto: x2 on a plain screen, x4 on a Retina one. */
+static float choose_size(float zoom, bool zoom_given)
+{
+    const float lw = (float)ROLLING_ROB_SCREEN_WIDTH, lh = (float)ROLLING_ROB_SCREEN_HEIGHT;
+    if(SDL_InitSubSystem(SDL_INIT_VIDEO) != 0) return s_scale_given ? zoom / (float)s_k : zoom;
+    SDL_Rect r;
+    if(!zoom_given && SDL_GetDisplayUsableBounds(0, &r) == 0) {
+        float fit = fminf((float)r.w * 0.9f / lw, (float)r.h * 0.9f / lh);
+        if(zoom > fit) zoom = fit < 1.0f ? 1.0f : fit;
+    }
+    float wpts = lw * zoom;
+    /* screen pixels per window point: 2 on a Retina Mac, 1.5 at 150 % */
+    float density = 1.0f;
+    SDL_Window * probe = rr_sdl_create_window("", 0, 0, 100, 100, SDL_WINDOW_HIDDEN);
+    if(probe) {
+        int w = 0, h = 0, pw = 0, ph = 0;
+        SDL_GetWindowSize(probe, &w, &h);
+        SDL_GetWindowSizeInPixels(probe, &pw, &ph);
+        if(w > 0 && pw > 0) density = (float)pw / (float)w;
+        SDL_DestroyWindow(probe);
+    }
+    if(!s_scale_given) {
+        int k = game_scale_choice();
+        if(k == 0) {
+            k = (int)(wpts * density / lw + 0.01f);
+#if defined(__arm__)
+            if(k > 1) k = 1; /* 32-bit ARM (a Raspberry Pi 2 or 3): the CPU draws every pixel */
+#elif defined(__aarch64__) && defined(__linux__)
+            if(k > 2) k = 2; /* a Raspberry Pi 4 or 5 */
+#endif
+        }
+        s_k = k < 1 ? 1 : k > 4 ? 4 : k;
+    }
+    fprintf(stderr, "window %.0fx%.0f points, %.2f pixels a point: picture %dx%d (x%d)\n", wpts, lh * zoom, (double)density,
+            SCR_W, SCR_H, s_k);
+    return wpts / (float)SCR_W;
+}
+#endif
+
 static int run_windowed(float zoom, int level)
 {
     find_data();
@@ -351,9 +426,26 @@ static int run_windowed(float zoom, int level)
         fprintf(stderr, "no WebGL: drawing with SDL's software renderer\n");
     }
 #endif
+#ifndef __EMSCRIPTEN__
+    game_load_settings(); /* the saved Resolution choice, before the window */
+    zoom = choose_size(zoom, s_zoom_given);
+    SDL_SetEventFilter(event_filter, NULL); /* before the window: see event_filter */
+#endif
     lv_init();
     lv_display_t * disp = lv_sdl_window_create(SCR_W, SCR_H);
     lv_sdl_window_set_zoom(disp, zoom);
+#ifndef __EMSCRIPTEN__
+    /* LVGL centred the window at the picture's size and the zoom shrank (or
+     * grew) it from its corner: at x4 it hung off the top left of the
+     * screen. Centre it at its real size. */
+    for(Uint32 id = 1; id < 64; id++) {
+        SDL_Window * w = SDL_GetWindowFromID(id);
+        if(w) {
+            SDL_SetWindowPosition(w, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+            break;
+        }
+    }
+#endif
     lv_sdl_window_set_title(disp, "Rolling Rob");
     sim_display_opaque(disp);
     /* Show every 60 Hz tick, not LVGL's default 33 ms (30 fps); the desktop
@@ -562,6 +654,13 @@ static int run_headless(int frames, const char * out_path, int level)
 int main(int argc, char ** argv)
 {
     SDL_SetMainReady();
+#ifdef _WIN32
+    /* Windows: the screen's own pixels at 125 % or 150 %, in points as on a
+     * Mac (rr_sdl_create_window asks for them), instead of a stretched
+     * picture */
+    SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2");
+    SDL_SetHint(SDL_HINT_WINDOWS_DPI_SCALING, "1");
+#endif
 #ifdef __EMSCRIPTEN__
     /* web/shell.html mounts IndexedDB here, so times and choices persist. */
     game_set_save_path("/save/rolling_rob_times");
@@ -570,7 +669,6 @@ int main(int argc, char ** argv)
     int frames = 60;
     int level = 0;
     float zoom = (float)ROLLING_ROB_SIM_ZOOM;
-    bool zoom_given = false;
     const char * out = "frame.raw";
 
     for(int i = 1; i < argc; i++) {
@@ -578,11 +676,12 @@ int main(int argc, char ** argv)
         else if(!strcmp(argv[i], "--frames") && i + 1 < argc) frames = atoi(argv[++i]);
         else if(!strcmp(argv[i], "--out") && i + 1 < argc) out = argv[++i];
         else if(!strcmp(argv[i], "--level") && i + 1 < argc) level = atoi(argv[++i]) - 1;
-        else if(!strcmp(argv[i], "--zoom") && i + 1 < argc) { zoom = (float)atof(argv[++i]); zoom_given = true; }
+        else if(!strcmp(argv[i], "--zoom") && i + 1 < argc) { zoom = (float)atof(argv[++i]); s_zoom_given = true; }
         else if(!strcmp(argv[i], "--scale") && i + 1 < argc) {
             s_k = atoi(argv[++i]);
             if(s_k < 1) s_k = 1;
             if(s_k > 4) s_k = 4;
+            s_scale_given = true;
         }
         else if(!strcmp(argv[i], "--no-touch-ui")) game_set_touch_controls(false);
         else if(!strcmp(argv[i], "--no-hud")) s_no_hud = true;
@@ -639,7 +738,10 @@ int main(int argc, char ** argv)
     }
 
     if(headless) return run_headless(frames, out, level);
-    /* a larger picture needs less window zoom for the same window */
-    if(!zoom_given && s_k > 1) zoom = zoom / (float)s_k < 1.0f ? 1.0f : zoom / (float)s_k;
+#ifdef __EMSCRIPTEN__
+    /* a larger picture needs less window zoom for the same window (the
+     * desktop chooses in choose_size) */
+    if(!s_zoom_given && s_k > 1) zoom = zoom / (float)s_k < 1.0f ? 1.0f : zoom / (float)s_k;
+#endif
     return run_windowed(zoom, level);
 }

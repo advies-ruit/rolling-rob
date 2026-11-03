@@ -25,7 +25,7 @@
 #include <arm_neon.h>
 #endif
 
-#define MAX_ROWS 8
+#define MAX_ROWS 10 /* the column holds 10 (ROW_H + ROW_GAP each); Rolling Rob has 9 */
 #define PIC_W 214 /* the picture's width; its height follows the screen */
 #define COL_Y 30
 #define COL_H 222

@@ -281,6 +281,7 @@ static void times_default_path(void)
 }
 
 static void times_save(void);
+static void times_load(void);
 static bool s_music_on = true, s_music_available;
 static int s_music_skip;
 static int s_music_volume = -1;
@@ -290,6 +291,17 @@ static int32_t s_music_pos_ms;
 static bool s_fps_on;
 
 bool game_fps_enabled(void) { return s_fps_on; }
+
+/* The desktop program's picture size (main_sim.c): 0 = chosen from the
+ * screen, else 1-4 times the 480x272 LCD. Takes effect at the next start. */
+static int s_scale_choice;
+int game_scale_choice(void) { return s_scale_choice; }
+void game_set_scale_choice(int k)
+{
+    s_scale_choice = k < 0 || k > 4 ? 0 : k;
+    times_save();
+}
+void game_load_settings(void) { times_load(); }
 
 void game_set_fps_enabled(bool on)
 {
@@ -369,6 +381,7 @@ static void times_load(void)
         else if(strcmp(key, "volume") == 0 && ms >= 0 && ms <= 100) s_music_volume = ms;
         else if(strcmp(key, "order") == 0 && ms >= 0 && ms < RR_MUSIC_ORDERS) s_music_order = (rr_music_order_t)ms;
         else if(strcmp(key, "fps") == 0) s_fps_on = ms != 0;
+        else if(strcmp(key, "scale") == 0 && ms >= 0 && ms <= 4) s_scale_choice = ms;
     }
     fclose(fp);
     if(chosen && art >= 0) {
@@ -394,6 +407,7 @@ static void times_save(void)
     if(s_music_volume >= 0) fprintf(fp, "volume 0 %d\n", s_music_volume);
     fprintf(fp, "order 0 %d\n", (int)s_music_order);
     fprintf(fp, "fps 0 %d\n", s_fps_on ? 1 : 0);
+    if(s_scale_choice) fprintf(fp, "scale 0 %d\n", s_scale_choice);
     fclose(fp);
 }
 

@@ -85,6 +85,12 @@ float app_fps(void);
 float app_loop_ms(void);
 int app_fingers(int * most);
 
+/* main_sim.c: whether the picture size can be chosen here (the desktop
+ * program; the web page has its own choice on the start screen), and the
+ * one it runs at now (1-4 times the 480x272 LCD). */
+bool sim_scale_choosable(void);
+int sim_scale_now(void);
+
 /* main_sim.c: an SDL window the program covers whole needs no alpha and no
  * screen background (saves two full-screen passes per frame). */
 void sim_display_opaque(lv_display_t * disp);

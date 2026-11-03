@@ -375,6 +375,25 @@ static bool rob_has_music(void) { return game_music_available(); }
 static const char * rob_fps_value(void) { return game_fps_enabled() ? "on" : "off"; }
 static void rob_fps(int dir) { (void)dir; game_set_fps_enabled(!game_fps_enabled()); }
 
+/* The picture size (the desktop program): auto or 1-4 times the LCD, from
+ * the next start; the value says what runs now, or that a restart is due. */
+static const char * rob_scale_value(void)
+{
+    static char buf[48];
+    int c = game_scale_choice(), now = sim_scale_now();
+    static const char * px[5] = { "", "480x272", "960x544", "1440x816", "1920x1088" };
+    if(c == 0) snprintf(buf, sizeof(buf), "auto (%s)", px[now]);
+    else if(c == now) snprintf(buf, sizeof(buf), "%s", px[c]);
+    else snprintf(buf, sizeof(buf), "%s, restart", px[c]); /* takes effect at the next start */
+    return buf;
+}
+static void rob_scale(int dir)
+{
+    int c = (game_scale_choice() + (dir < 0 ? 4 : 1)) % 5; /* auto, x1 .. x4, round again */
+    game_set_scale_choice(c);
+}
+static bool rob_scale_shown(void) { return sim_scale_choosable(); }
+
 static const char * rob_best(void)
 {
     static char buf[64];
@@ -410,6 +429,7 @@ static const page_row_t k_rob_rows[] = {
     { "Volume", NULL, rob_volume_value, rob_volume, rob_has_music, 0 },
     { "Order", NULL, rob_order_value, rob_order, rob_has_music, 'o' },
     { "Frame counter", NULL, rob_fps_value, rob_fps, NULL, 'f' },
+    { "Resolution", NULL, rob_scale_value, rob_scale, rob_scale_shown, 0 },
 };
 
 /* ---- the other games: Play / Continue and New game, and their own lines ---- */
