@@ -81,7 +81,7 @@ jobs:
       - name: glibc needed, and a bot run with the AppImage (Debian 11)
         run: |
           docker run --rm --platform ${{ matrix.platform }} -v "$PWD:/src" -w /src -e BOT -e GLIBC_MAX $IMAGE bash -euc '
-            apt-get update -qq && apt-get install -y -qq --no-install-recommends binutils >/dev/null
+            sh tools/debian-apt.sh binutils
             sh tools/check-glibc.sh build-linux/AppDir "$GLIBC_MAX"
             mkdir -p elsewhere && cd elsewhere
             ../out/Rolling-Rob-Linux-${{ matrix.arch }}.AppImage --appimage-extract-and-run $BOT 2>&1 | tee bot.txt

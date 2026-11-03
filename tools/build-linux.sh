@@ -13,14 +13,12 @@ set -eu
 cd "$(dirname "$0")/.."
 BUILD=${1:?build dir}
 : "${SDL2_VERSION:?SDL2_VERSION}"
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-apt-get install -y -qq --no-install-recommends \
+sh tools/debian-apt.sh \
   build-essential cmake git curl ca-certificates pkg-config file binutils \
   libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev \
   libxxf86vm-dev libxkbcommon-dev libwayland-dev wayland-protocols \
   libegl1-mesa-dev libgles2-mesa-dev libgl1-mesa-dev libdrm-dev libgbm-dev \
-  libasound2-dev libpulse-dev libudev-dev libdbus-1-dev >/dev/null
+  libasound2-dev libpulse-dev libudev-dev libdbus-1-dev
 git config --global --add safe.directory "$PWD"
 git config --global --add safe.directory "$PWD/third_party/lvgl"
 
