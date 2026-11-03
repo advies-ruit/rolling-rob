@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rolling Rob</title>
+<style>
+  :root { --bg: #101410; --fg: #e8e8e8; --gold: #ffd700; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+    font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  body { display: flex; align-items: center; justify-content: center; text-align: center; padding: 16px; box-sizing: border-box; }
+  a { color: var(--gold); }
+</style>
+<script>
+/* A version taken off the site (tools/assemble-site.sh, RETIRED). Whoever
+ * chose it on the start screen goes back to the newest, and the choice is
+ * forgotten; sw.js next to this page removes the version from the device. */
+try { if (localStorage.getItem('rr-version') === '__TAG__') localStorage.removeItem('rr-version'); } catch (e) {}
+location.replace('../../' + location.search);
+</script>
+</head>
+<body>
+<p>Version __TAG__ is no longer on the site.<br><a href="../../">Play the newest version</a></p>
+</body>
+</html>

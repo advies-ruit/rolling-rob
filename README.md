@@ -74,6 +74,17 @@ a zip, with the SHA-256 of its files) and the site is published from all
 releases: the newest at the top, each one also under `v/<tag>/`, so the
 start screen can switch to an older version and back.
 
+A version can be taken off the site: add its tag to `RETIRED` in
+`tools/assemble-site.sh` (v1.2 is: v1.3 is the same game with a fix for
+switching versions on iOS). Its folder then holds a farewell
+(`web/retired/`): a page that sends to the newest version and forgets the
+choice, and a service worker that removes the version from devices that
+had it. The newest release is never retired.
+
+Which build is running: the app's Info page shows the version (the
+release tag), when it was built and its commit; the start screen shows the
+version and the build time.
+
 ## Licences
 
 - The game code: licence not chosen yet (until then all rights reserved).

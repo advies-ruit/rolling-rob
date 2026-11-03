@@ -10,6 +10,7 @@
  * to an older version and forward again never throws one away. */
 var VERSION = '__VERSION__';
 var BUILT = '__BUILT__'; /* shown on the start screen */
+var TAG = '__TAG__';     /* the release (v1.3), or git describe for other builds */
 var SCOPE = new URL(self.registration.scope).pathname;
 var PREFIX = 'rolling-rob|' + SCOPE + '|';
 var CACHE = PREFIX + VERSION;
@@ -36,7 +37,7 @@ self.addEventListener('activate', function (e) {
 
 self.addEventListener('message', function (e) {
   if (e.data === 'update') self.skipWaiting();
-  if (e.data === 'version' && e.source) e.source.postMessage({ version: VERSION, built: BUILT });
+  if (e.data === 'version' && e.source) e.source.postMessage({ version: VERSION, built: BUILT, tag: TAG });
 });
 
 /* From the cache, the network only for what is not in it. The query string

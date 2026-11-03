@@ -528,7 +528,9 @@
       /* which build this is: the running worker knows its version and date */
       var tag = document.getElementById('version');
       navigator.serviceWorker.addEventListener('message', function (e) {
-        if (e.data && e.data.built) tag.textContent = 'Version ' + e.data.built + ' (' + e.data.version.slice(0, 7) + ')';
+        /* older workers send no tag */
+        if (e.data && e.data.built)
+          tag.textContent = 'Version ' + (e.data.tag ? e.data.tag + ' \u00b7 ' : '') + e.data.built;
       });
       function ask() { if (navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage('version'); }
       ask();
