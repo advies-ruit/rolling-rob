@@ -29,6 +29,7 @@ static lv_obj_t * s_picker;
 static int32_t s_ui_w, s_ui_h;
 static lv_obj_t * s_tiles[RR_LEVEL_THUMB_COUNT];
 static lv_obj_t * s_tile_best[RR_LEVEL_THUMB_COUNT];
+static lv_obj_t * s_tile_img[RR_LEVEL_THUMB_COUNT];
 static lv_obj_t * s_time_label;
 static char s_last_time[96];
 static char s_last_message[200];
@@ -115,6 +116,13 @@ static void picker_update_selection(void)
         lv_obj_set_style_border_color(s_tiles[i], sel ? GOLD : lv_color_make(0x55, 0x55, 0x55), 0);
         lv_obj_set_style_border_width(s_tiles[i], sel ? K(2) : K(1), 0);
         lv_obj_set_style_bg_color(s_tiles[i], i == cur ? lv_color_make(0x33, 0x2E, 0x10) : lv_color_make(0x20, 0x20, 0x20), 0);
+        /* the look the level is drawn with: original, or its painted set (a
+         * fallback set when its own is missing; the rendered look shows the
+         * painted thumbnails) */
+        int set = rr_art_set_for_level(i);
+        const lv_image_dsc_t * thumb = set >= 0 && set < RR_LEVEL_THUMB_COUNT ? &rr_level_thumbs_painted[set]
+                                                                               : &rr_level_thumbs[i];
+        if(lv_image_get_src(s_tile_img[i]) != thumb) lv_image_set_src(s_tile_img[i], thumb);
     }
     if(s_settings_compact) {
         if(s_music_label) lv_label_set_text(s_music_label, game_music_enabled() ? LV_SYMBOL_AUDIO " On" : LV_SYMBOL_MUTE " Off");
@@ -324,7 +332,8 @@ static void picker_create(void)
         lv_obj_add_event_cb(tile, tile_event_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
 
         lv_obj_t * img = lv_image_create(tile);
-        lv_image_set_src(img, &rr_level_thumbs[i]);
+        s_tile_img[i] = img;
+        lv_image_set_src(img, &rr_level_thumbs[i]); /* the look's own: picker_update_selection */
         if(rr_ui_scale() != 1.0f) {
             /* the thumbnails are 480x272 sized: stretched with the rest */
             lv_obj_set_size(img, K(rr_level_thumbs[i].header.w), K(rr_level_thumbs[i].header.h));

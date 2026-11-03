@@ -35,6 +35,11 @@ bool rr_art_enabled(void);
 void rr_art_set_rendered(bool on);
 bool rr_art_rendered(void);
 bool rr_art_rendered_available(void);
+/* The picture set a level (0-based) is drawn with in the current choice:
+ * its own, or its fallback when its own is missing or broken; -1 for the
+ * original look (chosen, or no set left). A set not tried yet counts as
+ * there when its files are; nothing is loaded. For the level picker. */
+int rr_art_set_for_level(int level);
 /* Whether the last prepared frame was drawn with the art (the choice, and
  * the files are there). */
 bool rr_art_drawn(void);

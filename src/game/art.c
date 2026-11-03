@@ -817,6 +817,45 @@ void rr_art_set_rendered(bool on)
 
 bool rr_art_rendered(void) { return s_rendered; }
 
+/* Whether a set's files are in the art directory (not whether they decode;
+ * a set that fails to load is marked in s_set_failed). Checked once. */
+static bool set_files_present(int set)
+{
+    static int8_t s_present[ART_SETS]; /* 0 unknown, 1 there, -1 missing */
+    if(s_present[set] == 0) {
+        char names[9][16];
+        int n = 0;
+        snprintf(names[n++], 16, "bg-%d.jpg", set);
+        snprintf(names[n++], 16, "tex-%d.jpg", set);
+        snprintf(names[n++], 16, "tree-%d.png", set);
+        snprintf(names[n++], 16, "enemy-%d.png", set);
+        snprintf(names[n++], 16, "mine%s.png", set == 0 ? "-0" : "");
+        snprintf(names[n++], 16, "ufo%s.png", set == 0 ? "-0" : "");
+        snprintf(names[n++], 16, "boss.png");
+        snprintf(names[n++], 16, "rob.png");
+        if(set == 0) snprintf(names[n++], 16, "deco-0.png");
+        s_present[set] = 1;
+        for(int i = 0; i < n && s_present[set] > 0; i++) {
+            /* the painted directory: the rendered set takes what it lacks from it */
+            char path[600];
+            FILE * f = snprintf(path, sizeof(path), "%s/%s", s_dir, names[i]) < (int)sizeof(path) ? fopen(path, "rb")
+                                                                                                : NULL;
+            if(f) fclose(f);
+            else s_present[set] = -1;
+        }
+    }
+    return s_present[set] > 0;
+}
+
+int rr_art_set_for_level(int level)
+{
+    if(s_state == ART_UNKNOWN) find_dir();
+    if(s_state != ART_READY || s_user_off) return -1;
+    int set = level >= 0 && level < ART_SETS ? level : -1;
+    while(set >= 0 && (s_set_failed[set] || !set_files_present(set))) set = s_fallback[set];
+    return set;
+}
+
 static void find_dir(void)
 {
     const char * env = getenv("ROLLING_ROB_ART");

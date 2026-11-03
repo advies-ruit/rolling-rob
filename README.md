@@ -22,7 +22,9 @@ Levels 1-10 are the original's. Level 11, Beyond the Summit, is a bonus
 level of our own: it continues their curve (longer, steeper, more
 obstacles) in the space theme at night. The run (the total time of levels
 1-10 in a row) stays the original's ten levels. Its picker thumbnail comes
-from `tools/level-thumb.py`.
+from `tools/level-thumb.py`. The picker shows each level in the look it is
+played in: the painted thumbnails (all levels, `tools/level-thumb.py
+--painted`) when the painted or rendered look is on, else the original ones.
 
 Its painted look has pictures of its own (a starry sky, alien ground, a
 glowing space plant and an alien). Should one of the four be missing or
