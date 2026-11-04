@@ -93,7 +93,7 @@ set(RR_APP_SOURCES src/app/app.c src/app/tetris_view.c src/tetris/tetris.c
                    src/app/fractal_view.c src/fractal/fractal.c)
 
 add_executable(rolling_rob_sim src/platform/sim/main_sim.c src/platform/sim/bot.c
-               src/platform/sim/music.c src/platform/sim/app_info_sdl.c
+               src/platform/sim/music.c src/platform/sim/app_info_sdl.c src/platform/sim/fbdev_sim.c
                ${RR_APP_SOURCES})
 target_compile_options(rolling_rob_sim PRIVATE ${RR_WARNINGS})
 target_include_directories(rolling_rob_sim PRIVATE third_party/miniaudio src/app src/tetris src/g2048 src/r3d src/snake src/breakout src/mines src/fractal src/platform/sim)

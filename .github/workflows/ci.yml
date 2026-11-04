@@ -28,7 +28,7 @@ jobs:
   desktop:
     # The desktop program (SDL2) on Linux, without warnings in our own code,
     # its tests, and a run without a window: the bot has to finish all eleven
-    # levels.
+    # levels. And its fallback for a Linux device with only /dev/fb0.
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -49,6 +49,8 @@ jobs:
           build/rolling_rob_sim --headless --bot --seed 6 --frames 200000 --out bot.raw | tee bot.txt
           grep -q '11/11 levels finished' bot.txt
           ! grep -q STALLED bot.txt
+      - name: On a framebuffer (a file plays /dev/fb0)
+        run: sh tools/check-fbdev.sh build/rolling_rob_sim
 
   packages:
     # The packages players download (Linux AppImage x86-64 and arm64,

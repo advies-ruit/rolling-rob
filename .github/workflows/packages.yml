@@ -1,6 +1,7 @@
 # The desktop program, packaged for players: a Linux AppImage (x86-64,
 # arm64 for a Raspberry Pi with 64-bit Raspberry Pi OS, and armhf for one
-# with 32-bit Raspberry Pi OS; glibc 2.31 or newer), a Windows x64 zip and a
+# with 32-bit Raspberry Pi OS; glibc 2.31 or newer) and the same as a
+# tar.gz (for a device without FUSE), a Windows x64 zip and a
 # universal macOS app. Each package is started on its own system and
 # the bot has to finish all levels with it, from another folder (so the
 # art and music inside the package are what it uses).
@@ -101,11 +102,19 @@ jobs:
             else
               "$app" --appimage-extract-and-run $BOT 2>&1 | tee bot.txt
             fi
-            sh ../tools/check-bot-run.sh bot.txt'
+            sh ../tools/check-bot-run.sh bot.txt
+            # the tar.gz, unpacked: started from here (no art/), its program
+            # finds its own
+            mkdir ../tarred
+            tar -xzf ../out/Rolling-Rob-Linux-${{ matrix.arch }}.tar.gz -C ../tarred
+            ../tarred/Rolling-Rob/rolling-rob --headless --frames 120 --out tar.raw 2>&1 | tee tar.txt
+            grep -q "art: level 0 landscape" tar.txt'
       - uses: actions/upload-artifact@v7
         with:
           name: package-linux-${{ matrix.arch }}
-          path: out/Rolling-Rob-Linux-${{ matrix.arch }}.AppImage
+          path: |
+            out/Rolling-Rob-Linux-${{ matrix.arch }}.AppImage
+            out/Rolling-Rob-Linux-${{ matrix.arch }}.tar.gz
           if-no-files-found: error
 
   windows:
