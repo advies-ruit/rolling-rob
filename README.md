@@ -91,9 +91,15 @@ The Linux AppImages are built in Debian 11 (`tools/build-linux.sh`), so
 they need glibc 2.31 or newer: Debian 11+, Ubuntu 20.04+, Raspberry Pi OS 11
 ("Bullseye") and newer. `tools/check-glibc.sh` checks every file in them for
 that, and the bot plays them in Debian 11. They use the static AppImage
-runtime, so no libfuse is needed; where FUSE is missing altogether, start one
-with `--appimage-extract-and-run`. The 32-bit ARM one needs ARMv7 (not a
+runtime, so no libfuse is needed; where FUSE is missing altogether (no
+`/dev/fuse`, "Cannot mount AppImage"), start one with
+`--appimage-extract-and-run`. The 32-bit ARM one needs ARMv7 (not a
 Raspberry Pi 1 or Zero).
+
+They need a screen SDL can drive: an X11 or Wayland desktop, or, without
+one (Raspberry Pi OS Lite), KMS/DRM (`/dev/dri`, with Mesa's libgbm and EGL
+installed). A framebuffer alone (`/dev/fb0`, a kernel without DRM) is not
+enough; the program then says so and stops.
 
 ## Tests
 

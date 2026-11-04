@@ -379,10 +379,37 @@ SDL_Window * SDLCALL rr_sdl_create_window(const char * title, int x, int y, int 
  * picture: --scale, else the saved choice (the Resolution line on Rolling
  * Rob's page), else auto -- as many screen pixels as the window has, like
  * the web page's Auto: x2 on a plain screen, x4 on a Retina one. */
+/* Without a screen there is nothing to play on: say so and stop, instead of
+ * running on unseen (SDL then falls back to its offscreen driver, or LVGL
+ * runs without a window -- no message, nothing shown, never ending). */
+static void no_screen(const char * what)
+{
+    fprintf(stderr,
+            "Rolling Rob: no screen to show the game on (%s).\n"
+            "It needs an X11 or Wayland desktop, or KMS/DRM (/dev/dri) without one;\n"
+            "a framebuffer alone (/dev/fb0) is not enough.\n",
+            what);
+    exit(1);
+}
+
 static float choose_size(float zoom, bool zoom_given)
 {
     const float lw = (float)ROLLING_ROB_SCREEN_WIDTH, lh = (float)ROLLING_ROB_SCREEN_HEIGHT;
-    if(SDL_InitSubSystem(SDL_INIT_VIDEO) != 0) return s_scale_given ? zoom / (float)s_k : zoom;
+    if(SDL_InitSubSystem(SDL_INIT_VIDEO) != 0) {
+        char what[256];
+        snprintf(what, sizeof what, "SDL: %s", SDL_GetError());
+        no_screen(what);
+    }
+    /* offscreen and dummy draw into memory only: fine when asked for
+     * (SDL_VIDEODRIVER), not when SDL settles for one as nothing else works */
+    const char * driver = SDL_GetCurrentVideoDriver();
+    const char * asked = getenv("SDL_VIDEODRIVER");
+    if(driver && (!strcmp(driver, "offscreen") || !strcmp(driver, "dummy")) && !(asked && strstr(asked, driver))) {
+        char what[256];
+        snprintf(what, sizeof what, "SDL found only its \"%s\" driver", driver);
+        no_screen(what);
+    }
+    fprintf(stderr, "video: %s\n", driver ? driver : "?");
     SDL_Rect r;
     if(!zoom_given && SDL_GetDisplayUsableBounds(0, &r) == 0) {
         float fit = fminf((float)r.w * 0.9f / lw, (float)r.h * 0.9f / lh);
@@ -433,6 +460,15 @@ static int run_windowed(float zoom, int level)
 #endif
     lv_init();
     lv_display_t * disp = lv_sdl_window_create(SCR_W, SCR_H);
+#ifndef __EMSCRIPTEN__
+    bool have_window = false; /* the probe in choose_size took id 1 */
+    for(Uint32 id = 1; id < 64 && !have_window; id++) have_window = SDL_GetWindowFromID(id) != NULL;
+    if(!disp || !have_window) {
+        char what[256];
+        snprintf(what, sizeof what, "no window: %s", SDL_GetError());
+        no_screen(what);
+    }
+#endif
     lv_sdl_window_set_zoom(disp, zoom);
 #ifndef __EMSCRIPTEN__
     /* LVGL centred the window at the picture's size and the zoom shrank (or
