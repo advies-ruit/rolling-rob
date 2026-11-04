@@ -26,9 +26,9 @@
 #include "music.h"
 #include "app.h"
 #include "level.h"
-#include "fbdev_sim.h"
 #define SDL_MAIN_HANDLED /* our own main(), no SDL2main library (Windows) */
 #include <SDL2/SDL.h>
+#include "fbdev_sim.h" /* after SDL_MAIN_HANDLED: it includes SDL too */
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 #endif
