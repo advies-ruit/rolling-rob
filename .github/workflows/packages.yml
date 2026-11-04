@@ -33,7 +33,10 @@ jobs:
     # makes sure no file in it needs a newer glibc, and the bot run happens
     # in Debian 11 too. armhf (32-bit ARM, ARMv7: Raspberry Pi 2, 3, 4, 5 and
     # Zero 2 with 32-bit Raspberry Pi OS) has no GitHub runner -- its ARM CPUs
-    # run no 32-bit code -- so it is emulated (QEMU), the slowest job by far.
+    # run no 32-bit code -- so it is cross-compiled in an x86-64 Debian 11
+    # with Debian 11's own armhf compiler and libraries (cross: armhf, a few
+    # minutes; built in an emulated armhf container it took half an hour),
+    # and its bot run is emulated (QEMU).
     strategy:
       fail-fast: false
       matrix:
@@ -49,6 +52,8 @@ jobs:
           - arch: armhf
             runner: ubuntu-24.04
             platform: linux/arm/v7
+            build-platform: linux/amd64
+            cross: armhf
             tool: x86_64
             emulated: true
     runs-on: ${{ matrix.runner }}
@@ -63,10 +68,11 @@ jobs:
         if: matrix.emulated
         with:
           platforms: arm
-      - name: Build (Debian 11, ${{ matrix.platform }})
+      - name: Build (Debian 11, ${{ matrix.cross && format('cross-compiled for {0}', matrix.cross) || matrix.platform }})
         run: |
-          docker run --rm --platform ${{ matrix.platform }} -v "$PWD:/src" -w /src \
-            -e SDL2_VERSION -e RR_VERSION="${{ inputs.version }}" $IMAGE sh tools/build-linux.sh build-linux
+          docker run --rm --platform ${{ matrix.build-platform || matrix.platform }} -v "$PWD:/src" -w /src \
+            -e SDL2_VERSION -e RR_VERSION="${{ inputs.version }}" -e CROSS="${{ matrix.cross }}" \
+            $IMAGE sh tools/build-linux.sh build-linux
       - name: Package
         run: |
           base=https://github.com/AppImage
