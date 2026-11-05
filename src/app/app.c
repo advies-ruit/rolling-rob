@@ -389,7 +389,10 @@ static const char * rob_scale_value(void)
 }
 static void rob_scale(int dir)
 {
-    int c = (game_scale_choice() + (dir < 0 ? 4 : 1)) % 5; /* auto, x1 .. x4, round again */
+    /* auto, x1 .. as large as fits (x4 in a window), round again */
+    int n = sim_scale_max() + 1, c = game_scale_choice();
+    if(c >= n) c = 0;
+    c = (c + (dir < 0 ? n - 1 : 1)) % n;
     game_set_scale_choice(c);
 }
 static bool rob_scale_shown(void) { return sim_scale_choosable(); }

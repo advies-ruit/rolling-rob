@@ -7,6 +7,7 @@
 
 #include <dirent.h>
 #include <errno.h>
+#include <pthread.h>
 #include <fcntl.h>
 #include <linux/fb.h>
 #include <linux/input.h>
@@ -23,8 +24,10 @@
 
 static int s_fb_w, s_fb_h, s_bpp; /* the framebuffer's visible size */
 static int s_ox, s_oy;            /* where the picture sits in it */
-static int s_zoom = 1;            /* each picture pixel as s_zoom x s_zoom in it */
-static uint8_t * s_zoom_buf;      /* one zoomed picture row */
+static int s_dw, s_dh;            /* the picture as shown in it */
+static bool s_scaled;             /* shown larger than drawn */
+static int32_t * s_x0, * s_y0;    /* picture column / row i starts at s_x0[i] / s_y0[i] shown (i = 0..w / 0..h) */
+static uint8_t * s_zoom_buf;      /* one scaled picture row */
 static bool s_rot180;             /* ROLLING_ROB_ROTATE=180 */
 static lv_display_flush_cb_t s_driver_flush;
 
@@ -154,52 +157,62 @@ static double now_ms_f(void)
     return (double)t.tv_sec * 1000.0 + (double)t.tv_nsec / 1e6;
 }
 
+static pthread_mutex_t s_mx = PTHREAD_MUTEX_INITIALIZER; /* s_flush_ms and the writer's job */
+
 double fbdev_take_flush_ms(void)
 {
+    pthread_mutex_lock(&s_mx);
     double ms = s_flush_ms;
     s_flush_ms = 0;
+    pthread_mutex_unlock(&s_mx);
     return ms;
 }
 
-/* The area zoomed: each row widened once in RAM, then handed to the driver
- * s_zoom times, one framebuffer row each. Copying the widened row within RAM
- * to make a block of rows cost more than the widening (measured: 8.5 ms a
- * frame at 960x544 against 4.7 ms like this); the framebuffer itself is
- * never read, which is slow on many devices. */
-static void zoom_flush(lv_display_t * disp, const lv_area_t * a, const uint8_t * px, uint32_t stride, uint32_t px_size)
+/* The area scaled: each row widened once in RAM (a picture pixel 2 or 3
+ * framebuffer pixels wide at 480 -> 1280), then handed to the driver once
+ * for each framebuffer row it covers. Copying the widened row within RAM to
+ * make a block of rows cost more than the widening (measured: 8.5 ms a frame
+ * at 960x544 against 4.7 ms like this); the framebuffer itself is never
+ * read, which is slow on many devices. */
+static void scale_flush(lv_display_t * disp, const lv_area_t * a, const uint8_t * px, uint32_t stride, uint32_t px_size)
 {
-    const int k = s_zoom;
     const int32_t w = lv_area_get_width(a), h = lv_area_get_height(a);
+    const int32_t * x0 = s_x0 + a->x1;
+    const int32_t dx0 = x0[0], dx1 = x0[w]; /* the shown columns dx0 .. dx1 - 1 */
     for(int32_t y = 0; y < h; y++) {
         const uint8_t * src = px + (size_t)y * stride;
         if(px_size == 4) {
-            const uint32_t * s = (const uint32_t *)src;
+            const uint32_t * sp = (const uint32_t *)src;
             uint32_t * d = (uint32_t *)s_zoom_buf;
-            for(int32_t x = 0; x < w; x++)
-                for(int j = 0; j < k; j++) *d++ = s[x];
+            for(int32_t x = 0; x < w; x++) {
+                const uint32_t p = sp[x] | 0xFF000000u; /* opaque here: no pass of its own */
+                for(int32_t n = x0[x + 1] - x0[x]; n > 0; n--) *d++ = p;
+            }
         }
         else {
-            const uint16_t * s = (const uint16_t *)src;
+            const uint16_t * sp = (const uint16_t *)src;
             uint16_t * d = (uint16_t *)s_zoom_buf;
             for(int32_t x = 0; x < w; x++)
-                for(int j = 0; j < k; j++) *d++ = s[x];
+                for(int32_t n = x0[x + 1] - x0[x]; n > 0; n--) *d++ = sp[x];
         }
-        for(int j = 0; j < k; j++) {
-            const int32_t fy = s_oy + (a->y1 + y) * k + j;
+        const int32_t r = a->y1 + y;
+        for(int32_t fy = s_y0[r]; fy < s_y0[r + 1]; fy++) {
             lv_area_t b;
-            lv_area_set(&b, s_ox + a->x1 * k, fy, s_ox + (a->x2 + 1) * k - 1, fy);
+            lv_area_set(&b, s_ox + dx0, s_oy + fy, s_ox + dx1 - 1, s_oy + fy);
             s_driver_flush(disp, &b, s_zoom_buf); /* flush_ready each time: harmless, it only clears a flag */
         }
     }
 }
 
-static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * px)
+/* The picture of one area into the framebuffer: opaque, turned, scaled.
+ * Returns the time it took, ms. */
+static double write_area(lv_display_t * disp, const lv_area_t * area, uint8_t * px)
 {
     const double t0 = now_ms_f();
     const lv_color_format_t cf = lv_display_get_color_format(disp);
     const int32_t w = lv_area_get_width(area), h = lv_area_get_height(area);
     const uint32_t stride = lv_draw_buf_width_to_stride(w, cf);
-    if(s_bpp == 32) opaque_rows(px, w, h, stride);
+    if(s_bpp == 32 && !s_scaled) opaque_rows(px, w, h, stride);
     lv_area_t a = *area;
     if(s_rot180) {
         rotate180(px, w, h, stride, lv_color_format_get_size(cf));
@@ -207,13 +220,106 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * px)
         const int32_t ph = lv_display_get_vertical_resolution(disp);
         lv_area_set(&a, pw - 1 - area->x2, ph - 1 - area->y2, pw - 1 - area->x1, ph - 1 - area->y1);
     }
-    if(s_zoom > 1) zoom_flush(disp, &a, px, stride, lv_color_format_get_size(cf));
+    if(s_scaled) scale_flush(disp, &a, px, stride, lv_color_format_get_size(cf));
     else {
         lv_area_move(&a, s_ox, s_oy); /* into the middle of the framebuffer */
         s_driver_flush(disp, &a, px);
     }
-    s_flush_ms += now_ms_f() - t0;
+    return now_ms_f() - t0;
 }
+
+/* ---- the writing on a core of its own ----
+ * With two buffers LVGL draws the next picture into one while the other is
+ * written out here; flush_cb only hands it over. LVGL takes a buffer back
+ * only after the next flush_cb, and flush_cb first waits until the writer is
+ * done, so the writer never reads a buffer LVGL draws into. (The driver's
+ * own flush_ready, called by the writer, only clears a flag: harmless.)
+ * On one core, or with ROLLING_ROB_FB_THREAD=0, the writing stays in flush_cb. */
+static bool s_want_thread, s_threaded;
+static pthread_t s_writer;
+static pthread_cond_t s_cv = PTHREAD_COND_INITIALIZER;
+static bool s_job; /* an area waits for the writer or is being written */
+static lv_display_t * s_job_disp;
+static lv_area_t s_job_area;
+static uint8_t * s_job_px;
+
+static void * writer_main(void * arg)
+{
+    (void)arg;
+    pthread_mutex_lock(&s_mx);
+    for(;;) {
+        while(!s_job) pthread_cond_wait(&s_cv, &s_mx);
+        pthread_mutex_unlock(&s_mx);
+        const double ms = write_area(s_job_disp, &s_job_area, s_job_px);
+        pthread_mutex_lock(&s_mx);
+        s_flush_ms += ms;
+        s_job = false;
+        pthread_cond_broadcast(&s_cv);
+    }
+    return NULL;
+}
+
+static void wait_writer(void)
+{
+    pthread_mutex_lock(&s_mx);
+    while(s_job) pthread_cond_wait(&s_cv, &s_mx);
+    pthread_mutex_unlock(&s_mx);
+}
+
+static void flush_wait_cb(lv_display_t * disp)
+{
+    (void)disp;
+    wait_writer();
+}
+
+static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * px)
+{
+    if(!s_threaded) {
+        const double ms = write_area(disp, area, px);
+        pthread_mutex_lock(&s_mx);
+        s_flush_ms += ms;
+        pthread_mutex_unlock(&s_mx);
+        /* the first picture is written here, on LVGL's thread: the driver
+         * may allocate a line buffer then (BGR framebuffers), which must not
+         * happen on another thread. Then the writer. */
+        if(s_want_thread && pthread_create(&s_writer, NULL, writer_main, NULL) == 0) {
+            pthread_detach(s_writer);
+            s_threaded = true;
+        }
+        s_want_thread = false;
+        return;
+    }
+    wait_writer();
+    pthread_mutex_lock(&s_mx);
+    s_job_disp = disp;
+    s_job_area = *area;
+    s_job_px = px;
+    s_job = true;
+    pthread_cond_broadcast(&s_cv);
+    pthread_mutex_unlock(&s_mx);
+}
+
+/* Two buffers of the whole picture (one flush a frame); the writer starts
+ * after the first picture (flush_cb). */
+static void start_writer(lv_display_t * disp, int pic_w, int pic_h)
+{
+    const char * env = getenv("ROLLING_ROB_FB_THREAD");
+    if((env && atoi(env) == 0) || sysconf(_SC_NPROCESSORS_ONLN) < 2) return;
+    const lv_color_format_t cf = lv_display_get_color_format(disp);
+    const uint32_t size = lv_draw_buf_width_to_stride(pic_w, cf) * (uint32_t)pic_h;
+    uint8_t * b1 = malloc(size + LV_DRAW_BUF_ALIGN - 1), * b2 = malloc(size + LV_DRAW_BUF_ALIGN - 1);
+    if(b1 == NULL || b2 == NULL) {
+        free(b1);
+        free(b2);
+        return;
+    }
+    lv_display_set_buffers(disp, lv_draw_buf_align(b1, cf), lv_draw_buf_align(b2, cf), size,
+                           LV_DISPLAY_RENDER_MODE_PARTIAL);
+    lv_display_set_flush_wait_cb(disp, flush_wait_cb); /* no job: returns at once */
+    s_want_thread = true;
+}
+
+bool fbdev_writes_apart(void) { return s_threaded || s_want_thread; }
 
 /* The framebuffer around the picture: opaque black once. */
 static void clear_fb(void)
@@ -239,6 +345,52 @@ static void clear_fb(void)
     close(fd);
 }
 
+/* The size the picture is shown at. ROLLING_ROB_FB_ZOOM=1..4: that many
+ * times (as far as it fits), black around it. Else the whole framebuffer:
+ * as large as fits with the picture's shape, and where the framebuffer's
+ * shape differs by at most 1 % all of it -- 480x272 is 0.7 % narrower than
+ * 1280x720; stretched that little nothing looks different, while bars a few
+ * pixels wide would show as a frame. A larger difference keeps the shape,
+ * with black bars on two sides. */
+static void choose_shown(int pw, int ph)
+{
+    const int fit = s_fb_w / pw < s_fb_h / ph ? s_fb_w / pw : s_fb_h / ph;
+    const char * zoom = getenv("ROLLING_ROB_FB_ZOOM");
+    const int k = zoom && zoom[0] ? atoi(zoom) : 0;
+    if(k >= 1) {
+        const int z = k < fit ? k : fit > 1 ? fit : 1;
+        s_dw = pw * z;
+        s_dh = ph * z;
+        return;
+    }
+    const long long a = (long long)s_fb_w * ph, b = (long long)s_fb_h * pw; /* a < b: the framebuffer narrower */
+    if((a > b ? a - b : b - a) * 100 <= (a < b ? a : b)) {
+        s_dw = s_fb_w;
+        s_dh = s_fb_h;
+    }
+    else if(a < b) {
+        s_dw = s_fb_w;
+        s_dh = (int)((long long)s_fb_w * ph / pw);
+    }
+    else {
+        s_dw = (int)((long long)s_fb_h * pw / ph);
+        s_dh = s_fb_h;
+    }
+    if(s_dw < pw || s_dh < ph) { /* never smaller than drawn */
+        s_dw = pw;
+        s_dh = ph;
+    }
+}
+
+/* where each picture column / row starts when shown n wide / high */
+static int32_t * starts(int pic, int n)
+{
+    int32_t * t = malloc(sizeof(int32_t) * (size_t)(pic + 1));
+    if(t)
+        for(int i = 0; i <= pic; i++) t[i] = (int32_t)((long long)i * n / pic);
+    return t;
+}
+
 lv_display_t * fbdev_display_create(int pic_w, int pic_h)
 {
     char why[256];
@@ -251,28 +403,34 @@ lv_display_t * fbdev_display_create(int pic_w, int pic_h)
     if(disp) lv_linux_fbdev_set_skip_unblank(disp, true); /* done in clear_fb, without a message */
     if(disp == NULL || lv_linux_fbdev_set_file(disp, fbdev_path()) != LV_RESULT_OK) return NULL;
     s_bpp = lv_color_format_get_size(lv_display_get_color_format(disp)) * 8;
-    /* the display is the picture; the flush zooms it (whole times, as big
-     * as fits, unless ROLLING_ROB_FB_ZOOM says otherwise) and puts it in the
-     * middle */
+    /* the display is the picture; the flush scales it to the framebuffer
+     * (choose_shown) and puts it in the middle */
     lv_display_set_resolution(disp, pic_w, pic_h);
-    const int fit = s_fb_w / pic_w < s_fb_h / pic_h ? s_fb_w / pic_w : s_fb_h / pic_h;
-    const char * zoom = getenv("ROLLING_ROB_FB_ZOOM");
-    s_zoom = zoom && zoom[0] ? atoi(zoom) : fit;
-    if(s_zoom < 1) s_zoom = 1;
-    if(s_zoom > fit) s_zoom = fit > 1 ? fit : 1;
-    if(s_zoom > 1) {
-        const uint32_t row = lv_draw_buf_width_to_stride(pic_w * s_zoom, lv_display_get_color_format(disp));
-        s_zoom_buf = malloc(row);
-        if(s_zoom_buf == NULL) s_zoom = 1;
+    choose_shown(pic_w, pic_h);
+    s_scaled = s_dw != pic_w || s_dh != pic_h;
+    if(s_scaled) {
+        s_zoom_buf = malloc(lv_draw_buf_width_to_stride(s_dw, lv_display_get_color_format(disp)));
+        s_x0 = starts(pic_w, s_dw);
+        s_y0 = starts(pic_h, s_dh);
+        if(s_zoom_buf == NULL || s_x0 == NULL || s_y0 == NULL) {
+            s_scaled = false;
+            s_dw = pic_w;
+            s_dh = pic_h;
+        }
     }
-    s_ox = (s_fb_w - pic_w * s_zoom) / 2;
-    s_oy = (s_fb_h - pic_h * s_zoom) / 2;
+    s_ox = (s_fb_w - s_dw) / 2;
+    s_oy = (s_fb_h - s_dh) / 2;
     s_driver_flush = disp->flush_cb;
     lv_display_set_flush_cb(disp, flush_cb);
-    char zoomed[48] = "";
-    if(s_zoom > 1) snprintf(zoomed, sizeof zoomed, ", shown %dx%d", pic_w * s_zoom, pic_h * s_zoom);
-    fprintf(stderr, "video: %s, %dx%d at %d bits a pixel: picture %dx%d%s%s\n", fbdev_path(), s_fb_w, s_fb_h, s_bpp,
-            pic_w, pic_h, zoomed, s_rot180 ? ", turned 180 degrees" : "");
+    start_writer(disp, pic_w, pic_h);
+    /* how much wider than drawn (or, below 0, narrower) the picture is shown, % */
+    const double wider = ((double)s_dw * pic_h / ((double)s_dh * pic_w) - 1.0) * 100.0;
+    char shape[40] = "";
+    if(wider >= 0.05 || wider <= -0.05)
+        snprintf(shape, sizeof shape, ", %.1f %% %s", wider < 0 ? -wider : wider, wider < 0 ? "narrower" : "wider");
+    fprintf(stderr, "video: %s, %dx%d at %d bits a pixel: picture %dx%d, shown %dx%d at %d,%d%s%s%s\n", fbdev_path(),
+            s_fb_w, s_fb_h, s_bpp, pic_w, pic_h, s_dw, s_dh, s_ox, s_oy, shape, s_rot180 ? ", turned 180 degrees" : "",
+            s_want_thread ? ", written out on a thread of its own" : "");
     return disp;
 }
 
@@ -317,8 +475,7 @@ void fbdev_touch_create(lv_display_t * disp)
         if(indev == NULL) continue;
         lv_indev_set_display(indev, disp);
         /* the touchscreen covers the whole framebuffer, the picture its middle */
-        const int pw = lv_display_get_horizontal_resolution(disp) * s_zoom;
-        const int ph = lv_display_get_vertical_resolution(disp) * s_zoom;
+        const int pw = s_dw, ph = s_dh;
         const double rx = (double)(ax.maximum - ax.minimum) / s_fb_w, ry = (double)(ay.maximum - ay.minimum) / s_fb_h;
         int x0 = ax.minimum + (int)(rx * s_ox), x1 = ax.minimum + (int)(rx * (s_ox + pw));
         int y0 = ay.minimum + (int)(ry * s_oy), y1 = ay.minimum + (int)(ry * (s_oy + ph));

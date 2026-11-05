@@ -111,9 +111,13 @@ neither a screen nor a framebuffer the program says so and stops.
 
 On a framebuffer: `ROLLING_ROB_FBDEV=/dev/fb1` takes another one (and goes
 straight to it), `ROLLING_ROB_ROTATE=180` turns the picture and the touch
-round, `ROLLING_ROB_TOUCH_FLIP=1` only the touch; the picture is zoomed
-whole times to fill the framebuffer, `ROLLING_ROB_FB_ZOOM=1` keeps it
-small (zooming costs a little time a frame); `--bot` lets the bot play
+round, `ROLLING_ROB_TOUCH_FLIP=1` only the touch; the picture is scaled
+to fill the framebuffer (480x272 to 1280x720 stretched 0.7 %, too little
+to see; a shape further off keeps its own, with black bars),
+`ROLLING_ROB_FB_ZOOM=1..4` shows it that many whole times instead, `1`
+unscaled (scaling costs a little time a frame); with more than one core the
+picture is written out on a thread of its own while LVGL draws the next
+one, `ROLLING_ROB_FB_THREAD=0` keeps that on LVGL's thread; `--bot` lets the bot play
 all levels where it can be watched. `tools/check-fbdev.sh` tests all this
 in CI with a file as the framebuffer (`tests/fakefb.c`).
 

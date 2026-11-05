@@ -16,9 +16,10 @@ const char * fbdev_path(void);
 /* Can the picture go there? Its size in *w, *h; else false and why. */
 bool fbdev_probe(int * w, int * h, char * why, size_t why_n);
 
-/* The display: a pic_w x pic_h picture in the middle of the framebuffer,
- * zoomed whole times as far as it fits (ROLLING_ROB_FB_ZOOM=1..4: that
- * far at most), every pixel opaque. Also switches the console to graphics (no kernel
+/* The display: a pic_w x pic_h picture scaled to fill the framebuffer
+ * (its shape kept, unless that differs by at most 1 %; ROLLING_ROB_FB_ZOOM=
+ * 1..4: that many times instead, as far as it fits), in the middle, every
+ * pixel opaque. Also switches the console to graphics (no kernel
  * messages or cursor over the picture) until the program ends. */
 lv_display_t * fbdev_display_create(int pic_w, int pic_h);
 
@@ -31,3 +32,7 @@ void fbdev_poll_keys(Uint8 * keys, void (*pressed)(SDL_Scancode sc));
 
 /* The time spent writing into the framebuffer since the last call, ms. */
 double fbdev_take_flush_ms(void);
+
+/* Is that writing done on a thread of its own (with more than one core),
+ * next to LVGL's drawing rather than part of it? */
+bool fbdev_writes_apart(void);

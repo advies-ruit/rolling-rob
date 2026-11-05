@@ -404,6 +404,9 @@ bool sim_scale_choosable(void)
 #endif
 }
 int sim_scale_now(void) { return s_k; }
+/* The largest choice: 4, or on a framebuffer what fits on it. */
+static int s_k_max = 4;
+int sim_scale_max(void) { return s_k_max; }
 
 #ifndef __EMSCRIPTEN__
 /* SDL windows with the screen's own pixels. LVGL creates its window itself
@@ -463,6 +466,7 @@ static bool choose_fb_size(int fw, int fh)
     const int lw = ROLLING_ROB_SCREEN_WIDTH, lh = ROLLING_ROB_SCREEN_HEIGHT;
     int fit = fw / lw < fh / lh ? fw / lw : fh / lh;
     if(fit < 1) return false;
+    s_k_max = fit > 4 ? 4 : fit;
     int k = s_scale_given ? s_k : game_scale_choice();
     if(k == 0) {
         k = fit;
@@ -655,7 +659,9 @@ static int run_windowed(float zoom, int level)
         double since = ms_since(log_at);
         if(s_fbdev && since >= 5000.0) {
             double n = s_frames > 0 ? (double)s_frames : 1.0, fb_ms = fbdev_take_flush_ms();
-            fprintf(stderr, "fbdev: %.1f fps, %.0f%% busy; a frame: game %.1f ms, LVGL %.1f ms (of which into the framebuffer %.1f ms)\n",
+            fprintf(stderr, fbdev_writes_apart()
+                    ? "fbdev: %.1f fps, %.0f%% busy; a frame: game %.1f ms, LVGL %.1f ms; into the framebuffer, alongside: %.1f ms\n"
+                    : "fbdev: %.1f fps, %.0f%% busy; a frame: game %.1f ms, LVGL %.1f ms (of which into the framebuffer %.1f ms)\n",
                     s_frames * 1000.0 / since, busy_ms * 100.0 / since, s_game_ms / n, (busy_ms - s_game_ms) / n, fb_ms / n);
             s_frames = 0;
             s_game_ms = busy_ms = 0;
