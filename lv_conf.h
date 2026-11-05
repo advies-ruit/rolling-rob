@@ -1564,7 +1564,10 @@
 #endif /*LV_USE_LINUX_DRM*/
 
 /** Driver for /dev/fb */
-#if defined(ROLLING_ROB_TARGET_FBDEV)
+#if defined(ROLLING_ROB_TARGET_FBDEV) || \
+    (defined(ROLLING_ROB_TARGET_SIM) && defined(__linux__) && !defined(__EMSCRIPTEN__))
+    /* also the Linux desktop program: its fallback on a device with only
+     * /dev/fb0 (src/platform/sim/fbdev_sim.c) */
     #define LV_USE_LINUX_FBDEV 1
 #else
     #define LV_USE_LINUX_FBDEV 0
@@ -1668,7 +1671,10 @@
 #define LV_USE_TFT_ESPI 0
 
 /** Read touchscreen, mouse and keyboard input from Linux /dev/input event devices. */
-#if defined(ROLLING_ROB_TARGET_FBDEV)
+#if defined(ROLLING_ROB_TARGET_FBDEV) || \
+    (defined(ROLLING_ROB_TARGET_SIM) && defined(__linux__) && !defined(__EMSCRIPTEN__))
+    /* also the Linux desktop program: its fallback on a device with only
+     * /dev/fb0 (src/platform/sim/fbdev_sim.c) */
     #define LV_USE_EVDEV 1
 #else
     #define LV_USE_EVDEV 0

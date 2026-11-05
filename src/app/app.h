@@ -90,6 +90,7 @@ int app_fingers(int * most);
  * one it runs at now (1-4 times the 480x272 LCD). */
 bool sim_scale_choosable(void);
 int sim_scale_now(void);
+int sim_scale_max(void); /* the largest choice that fits (1-4) */
 
 /* main_sim.c: an SDL window the program covers whole needs no alpha and no
  * screen background (saves two full-screen passes per frame). */
