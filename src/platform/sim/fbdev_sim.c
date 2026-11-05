@@ -24,7 +24,7 @@
 static int s_fb_w, s_fb_h, s_bpp; /* the framebuffer's visible size */
 static int s_ox, s_oy;            /* where the picture sits in it */
 static int s_zoom = 1;            /* each picture pixel as s_zoom x s_zoom in it */
-static uint8_t * s_zoom_buf;      /* s_zoom rows of one zoomed picture row */
+static uint8_t * s_zoom_buf;      /* one zoomed picture row */
 static bool s_rot180;             /* ROLLING_ROB_ROTATE=180 */
 static lv_display_flush_cb_t s_driver_flush;
 
@@ -161,14 +161,15 @@ double fbdev_take_flush_ms(void)
     return ms;
 }
 
-/* The area zoomed: each row widened in RAM, s_zoom times, then to the
- * driver as one block of s_zoom rows (it copies RAM to the framebuffer, never
- * the framebuffer to itself, which is slow to read on many devices). */
+/* The area zoomed: each row widened once in RAM, then handed to the driver
+ * s_zoom times, one framebuffer row each. Copying the widened row within RAM
+ * to make a block of rows cost more than the widening (measured: 8.5 ms a
+ * frame at 960x544 against 4.7 ms like this); the framebuffer itself is
+ * never read, which is slow on many devices. */
 static void zoom_flush(lv_display_t * disp, const lv_area_t * a, const uint8_t * px, uint32_t stride, uint32_t px_size)
 {
     const int k = s_zoom;
     const int32_t w = lv_area_get_width(a), h = lv_area_get_height(a);
-    const size_t row = (size_t)lv_draw_buf_width_to_stride(w * k, lv_display_get_color_format(disp));
     for(int32_t y = 0; y < h; y++) {
         const uint8_t * src = px + (size_t)y * stride;
         if(px_size == 4) {
@@ -183,11 +184,12 @@ static void zoom_flush(lv_display_t * disp, const lv_area_t * a, const uint8_t *
             for(int32_t x = 0; x < w; x++)
                 for(int j = 0; j < k; j++) *d++ = s[x];
         }
-        for(int j = 1; j < k; j++) memcpy(s_zoom_buf + (size_t)j * row, s_zoom_buf, row);
-        lv_area_t b;
-        lv_area_set(&b, s_ox + a->x1 * k, s_oy + (a->y1 + y) * k, s_ox + (a->x2 + 1) * k - 1,
-                    s_oy + (a->y1 + y + 1) * k - 1);
-        s_driver_flush(disp, &b, s_zoom_buf); /* flush_ready each time: harmless, it only clears a flag */
+        for(int j = 0; j < k; j++) {
+            const int32_t fy = s_oy + (a->y1 + y) * k + j;
+            lv_area_t b;
+            lv_area_set(&b, s_ox + a->x1 * k, fy, s_ox + (a->x2 + 1) * k - 1, fy);
+            s_driver_flush(disp, &b, s_zoom_buf); /* flush_ready each time: harmless, it only clears a flag */
+        }
     }
 }
 
@@ -260,7 +262,7 @@ lv_display_t * fbdev_display_create(int pic_w, int pic_h)
     if(s_zoom > fit) s_zoom = fit > 1 ? fit : 1;
     if(s_zoom > 1) {
         const uint32_t row = lv_draw_buf_width_to_stride(pic_w * s_zoom, lv_display_get_color_format(disp));
-        s_zoom_buf = malloc((size_t)row * (size_t)s_zoom);
+        s_zoom_buf = malloc(row);
         if(s_zoom_buf == NULL) s_zoom = 1;
     }
     s_ox = (s_fb_w - pic_w * s_zoom) / 2;
