@@ -64,6 +64,7 @@ On a framebuffer:
   ROLLING_ROB_FBDEV=/dev/fb1   another framebuffer (or straight to one)
   ROLLING_ROB_ROTATE=180       the picture (and touch) turned round
   ROLLING_ROB_TOUCH_FLIP=1     only the touchscreen turned round
+  ROLLING_ROB_FB_ZOOM=1        the picture not zoomed to fill the screen
   --scale 1..4                 the picture 480x272 times 1..4
   --bot                        the bot plays all levels and says how it went
 README

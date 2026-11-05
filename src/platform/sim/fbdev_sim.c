@@ -23,6 +23,8 @@
 
 static int s_fb_w, s_fb_h, s_bpp; /* the framebuffer's visible size */
 static int s_ox, s_oy;            /* where the picture sits in it */
+static int s_zoom = 1;            /* each picture pixel as s_zoom x s_zoom in it */
+static uint8_t * s_zoom_buf;      /* s_zoom rows of one zoomed picture row */
 static bool s_rot180;             /* ROLLING_ROB_ROTATE=180 */
 static lv_display_flush_cb_t s_driver_flush;
 
@@ -159,6 +161,36 @@ double fbdev_take_flush_ms(void)
     return ms;
 }
 
+/* The area zoomed: each row widened in RAM, s_zoom times, then to the
+ * driver as one block of s_zoom rows (it copies RAM to the framebuffer, never
+ * the framebuffer to itself, which is slow to read on many devices). */
+static void zoom_flush(lv_display_t * disp, const lv_area_t * a, const uint8_t * px, uint32_t stride, uint32_t px_size)
+{
+    const int k = s_zoom;
+    const int32_t w = lv_area_get_width(a), h = lv_area_get_height(a);
+    const size_t row = (size_t)lv_draw_buf_width_to_stride(w * k, lv_display_get_color_format(disp));
+    for(int32_t y = 0; y < h; y++) {
+        const uint8_t * src = px + (size_t)y * stride;
+        if(px_size == 4) {
+            const uint32_t * s = (const uint32_t *)src;
+            uint32_t * d = (uint32_t *)s_zoom_buf;
+            for(int32_t x = 0; x < w; x++)
+                for(int j = 0; j < k; j++) *d++ = s[x];
+        }
+        else {
+            const uint16_t * s = (const uint16_t *)src;
+            uint16_t * d = (uint16_t *)s_zoom_buf;
+            for(int32_t x = 0; x < w; x++)
+                for(int j = 0; j < k; j++) *d++ = s[x];
+        }
+        for(int j = 1; j < k; j++) memcpy(s_zoom_buf + (size_t)j * row, s_zoom_buf, row);
+        lv_area_t b;
+        lv_area_set(&b, s_ox + a->x1 * k, s_oy + (a->y1 + y) * k, s_ox + (a->x2 + 1) * k - 1,
+                    s_oy + (a->y1 + y + 1) * k - 1);
+        s_driver_flush(disp, &b, s_zoom_buf); /* flush_ready each time: harmless, it only clears a flag */
+    }
+}
+
 static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * px)
 {
     const double t0 = now_ms_f();
@@ -173,8 +205,11 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * px)
         const int32_t ph = lv_display_get_vertical_resolution(disp);
         lv_area_set(&a, pw - 1 - area->x2, ph - 1 - area->y2, pw - 1 - area->x1, ph - 1 - area->y1);
     }
-    lv_area_move(&a, s_ox, s_oy); /* into the middle of the framebuffer */
-    s_driver_flush(disp, &a, px);
+    if(s_zoom > 1) zoom_flush(disp, &a, px, stride, lv_color_format_get_size(cf));
+    else {
+        lv_area_move(&a, s_ox, s_oy); /* into the middle of the framebuffer */
+        s_driver_flush(disp, &a, px);
+    }
     s_flush_ms += now_ms_f() - t0;
 }
 
@@ -214,14 +249,28 @@ lv_display_t * fbdev_display_create(int pic_w, int pic_h)
     if(disp) lv_linux_fbdev_set_skip_unblank(disp, true); /* done in clear_fb, without a message */
     if(disp == NULL || lv_linux_fbdev_set_file(disp, fbdev_path()) != LV_RESULT_OK) return NULL;
     s_bpp = lv_color_format_get_size(lv_display_get_color_format(disp)) * 8;
-    /* the display is the picture; the flush puts it in the middle */
+    /* the display is the picture; the flush zooms it (whole times, as big
+     * as fits, unless ROLLING_ROB_FB_ZOOM says otherwise) and puts it in the
+     * middle */
     lv_display_set_resolution(disp, pic_w, pic_h);
-    s_ox = (s_fb_w - pic_w) / 2;
-    s_oy = (s_fb_h - pic_h) / 2;
+    const int fit = s_fb_w / pic_w < s_fb_h / pic_h ? s_fb_w / pic_w : s_fb_h / pic_h;
+    const char * zoom = getenv("ROLLING_ROB_FB_ZOOM");
+    s_zoom = zoom && zoom[0] ? atoi(zoom) : fit;
+    if(s_zoom < 1) s_zoom = 1;
+    if(s_zoom > fit) s_zoom = fit > 1 ? fit : 1;
+    if(s_zoom > 1) {
+        const uint32_t row = lv_draw_buf_width_to_stride(pic_w * s_zoom, lv_display_get_color_format(disp));
+        s_zoom_buf = malloc((size_t)row * (size_t)s_zoom);
+        if(s_zoom_buf == NULL) s_zoom = 1;
+    }
+    s_ox = (s_fb_w - pic_w * s_zoom) / 2;
+    s_oy = (s_fb_h - pic_h * s_zoom) / 2;
     s_driver_flush = disp->flush_cb;
     lv_display_set_flush_cb(disp, flush_cb);
-    fprintf(stderr, "video: %s, %dx%d at %d bits a pixel: picture %dx%d%s\n", fbdev_path(), s_fb_w, s_fb_h, s_bpp,
-            pic_w, pic_h, s_rot180 ? ", turned 180 degrees" : "");
+    char zoomed[48] = "";
+    if(s_zoom > 1) snprintf(zoomed, sizeof zoomed, ", shown %dx%d", pic_w * s_zoom, pic_h * s_zoom);
+    fprintf(stderr, "video: %s, %dx%d at %d bits a pixel: picture %dx%d%s%s\n", fbdev_path(), s_fb_w, s_fb_h, s_bpp,
+            pic_w, pic_h, zoomed, s_rot180 ? ", turned 180 degrees" : "");
     return disp;
 }
 
@@ -266,8 +315,8 @@ void fbdev_touch_create(lv_display_t * disp)
         if(indev == NULL) continue;
         lv_indev_set_display(indev, disp);
         /* the touchscreen covers the whole framebuffer, the picture its middle */
-        const int pw = lv_display_get_horizontal_resolution(disp);
-        const int ph = lv_display_get_vertical_resolution(disp);
+        const int pw = lv_display_get_horizontal_resolution(disp) * s_zoom;
+        const int ph = lv_display_get_vertical_resolution(disp) * s_zoom;
         const double rx = (double)(ax.maximum - ax.minimum) / s_fb_w, ry = (double)(ay.maximum - ay.minimum) / s_fb_h;
         int x0 = ax.minimum + (int)(rx * s_ox), x1 = ax.minimum + (int)(rx * (s_ox + pw));
         int y0 = ay.minimum + (int)(ry * s_oy), y1 = ay.minimum + (int)(ry * (s_oy + ph));

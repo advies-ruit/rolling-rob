@@ -17,7 +17,8 @@ const char * fbdev_path(void);
 bool fbdev_probe(int * w, int * h, char * why, size_t why_n);
 
 /* The display: a pic_w x pic_h picture in the middle of the framebuffer,
- * every pixel opaque. Also switches the console to graphics (no kernel
+ * zoomed whole times as far as it fits (ROLLING_ROB_FB_ZOOM=1..4: that
+ * far at most), every pixel opaque. Also switches the console to graphics (no kernel
  * messages or cursor over the picture) until the program ends. */
 lv_display_t * fbdev_display_create(int pic_w, int pic_h);
 

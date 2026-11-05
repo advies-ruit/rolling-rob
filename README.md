@@ -111,7 +111,9 @@ neither a screen nor a framebuffer the program says so and stops.
 
 On a framebuffer: `ROLLING_ROB_FBDEV=/dev/fb1` takes another one (and goes
 straight to it), `ROLLING_ROB_ROTATE=180` turns the picture and the touch
-round, `ROLLING_ROB_TOUCH_FLIP=1` only the touch; `--bot` lets the bot play
+round, `ROLLING_ROB_TOUCH_FLIP=1` only the touch; the picture is zoomed
+whole times to fill the framebuffer, `ROLLING_ROB_FB_ZOOM=1` keeps it
+small (zooming costs a little time a frame); `--bot` lets the bot play
 all levels where it can be watched. `tools/check-fbdev.sh` tests all this
 in CI with a file as the framebuffer (`tests/fakefb.c`).
 
