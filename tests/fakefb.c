@@ -5,6 +5,8 @@
  * two pages high; the file must be at least line length x 2H bytes.
  * $FAKEKBD: a FIFO that stands in for /dev/input/event0, a keyboard; what
  * is written to it (struct input_event) are its key presses.
+ * $FAKE_MONOTONIC_MS: added to CLOCK_MONOTONIC, a device that has been up
+ * that long (its ms no longer fit an int32 after ~25 days).
  *   cc -shared -fPIC -o fakefb.so tests/fakefb.c -ldl */
 #define _GNU_SOURCE
 #include <dlfcn.h>
@@ -17,6 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 
 static int is_fake(int fd)
 {
@@ -125,4 +128,19 @@ int ioctl(int fd, unsigned long req, ...)
     static int (*real)(int, unsigned long, void *);
     if(!real) real = (int (*)(int, unsigned long, void *))dlsym(RTLD_NEXT, "ioctl");
     return real(fd, req, arg);
+}
+
+int clock_gettime(clockid_t id, struct timespec * ts)
+{
+    static int (*real)(clockid_t, struct timespec *);
+    if(!real) real = (int (*)(clockid_t, struct timespec *))dlsym(RTLD_NEXT, "clock_gettime");
+    int r = real(id, ts);
+    const char * up = getenv("FAKE_MONOTONIC_MS");
+    if(r == 0 && up && (id == CLOCK_MONOTONIC || id == CLOCK_MONOTONIC_RAW)) {
+        long long ms = atoll(up);
+        ts->tv_sec += (time_t)(ms / 1000);
+        ts->tv_nsec += (long)(ms % 1000) * 1000000L;
+        if(ts->tv_nsec >= 1000000000L) { ts->tv_sec++; ts->tv_nsec -= 1000000000L; }
+    }
+    return r;
 }

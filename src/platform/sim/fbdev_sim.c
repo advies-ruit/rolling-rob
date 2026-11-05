@@ -143,8 +143,25 @@ static void rotate180(uint8_t * px, int32_t w, int32_t h, uint32_t stride, uint3
     }
 }
 
+static double s_flush_ms; /* time spent in flush_cb, for the log */
+
+static double now_ms_f(void)
+{
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (double)t.tv_sec * 1000.0 + (double)t.tv_nsec / 1e6;
+}
+
+double fbdev_take_flush_ms(void)
+{
+    double ms = s_flush_ms;
+    s_flush_ms = 0;
+    return ms;
+}
+
 static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * px)
 {
+    const double t0 = now_ms_f();
     const lv_color_format_t cf = lv_display_get_color_format(disp);
     const int32_t w = lv_area_get_width(area), h = lv_area_get_height(area);
     const uint32_t stride = lv_draw_buf_width_to_stride(w, cf);
@@ -158,6 +175,7 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * px)
     }
     lv_area_move(&a, s_ox, s_oy); /* into the middle of the framebuffer */
     s_driver_flush(disp, &a, px);
+    s_flush_ms += now_ms_f() - t0;
 }
 
 /* The framebuffer around the picture: opaque black once. */
@@ -167,6 +185,7 @@ static void clear_fb(void)
     if(fd < 0) return;
     struct fb_var_screeninfo v;
     struct fb_fix_screeninfo f;
+    ioctl(fd, FBIOBLANK, FB_BLANK_UNBLANK); /* not every driver knows it: quietly */
     if(ioctl(fd, FBIOGET_VSCREENINFO, &v) == 0 && ioctl(fd, FBIOGET_FSCREENINFO, &f) == 0) {
         uint8_t * m = mmap(NULL, f.smem_len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
         if(m != MAP_FAILED) {
@@ -192,6 +211,7 @@ lv_display_t * fbdev_display_create(int pic_w, int pic_h)
     console_graphics();
     clear_fb();
     lv_display_t * disp = lv_linux_fbdev_create();
+    if(disp) lv_linux_fbdev_set_skip_unblank(disp, true); /* done in clear_fb, without a message */
     if(disp == NULL || lv_linux_fbdev_set_file(disp, fbdev_path()) != LV_RESULT_OK) return NULL;
     s_bpp = lv_color_format_get_size(lv_display_get_color_format(disp)) * 8;
     /* the display is the picture; the flush puts it in the middle */
@@ -295,6 +315,7 @@ static SDL_Scancode scancode_of(unsigned code)
 #define MAX_KEYBOARDS 8
 static int s_kbd[32]; /* fd + 1 by event number, 0: not open */
 static uint32_t s_next_scan_ms;
+static bool s_scanned; /* the first scan is due at once, whatever the clock says */
 
 static uint32_t now_ms(void)
 {
@@ -326,7 +347,10 @@ static void scan_keyboards(void)
 void fbdev_poll_keys(Uint8 * keys, void (*pressed)(SDL_Scancode sc))
 {
     uint32_t t = now_ms();
-    if((int32_t)(t - s_next_scan_ms) >= 0) {
+    /* t is the monotonic clock in ms, which wraps (and as int32 it is
+     * negative after ~25 days up): only differences count */
+    if(!s_scanned || (int32_t)(t - s_next_scan_ms) >= 0) {
+        s_scanned = true;
         scan_keyboards();
         s_next_scan_ms = t + 2000;
     }

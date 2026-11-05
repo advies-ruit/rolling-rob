@@ -287,6 +287,15 @@ static int SDLCALL event_filter(void * user, SDL_Event * e)
     return 0; /* never to LVGL */
 }
 
+/* Where a frame's time goes (the log on a framebuffer, every 5 s) */
+static double s_game_ms; /* frame(): the game's logic and its drawing */
+static int s_frames;
+
+static double ms_since(Uint64 a)
+{
+    return (double)(SDL_GetPerformanceCounter() - a) * 1000.0 / (double)SDL_GetPerformanceFrequency();
+}
+
 static bool windowed_bot_step(void);
 static bool windowed_bot_begin(int level);
 static void windowed_bot_tick(void);
@@ -305,7 +314,10 @@ static void render_timer_cb(lv_timer_t * timer)
     if(windowed_bot_step()) dt_ms = 16; /* the bot plays as headless: 16 ms a frame */
     else if(app_game_input()) poll_keyboard();
     else drop_keys();
+    Uint64 g = SDL_GetPerformanceCounter();
     if(app_game_runs()) frame(dt_ms);
+    s_game_ms += ms_since(g);
+    s_frames++;
     app_tick(dt_ms);
     if(app_draws_frame()) {
         /* the 3D demo: its bands into the game's canvas */
@@ -627,13 +639,30 @@ static int run_windowed(float zoom, int level)
     /* The browser owns the loop: one LVGL pass per animation frame. */
     emscripten_set_main_loop(web_loop, 0, 1);
 #else
+    Uint64 log_at = SDL_GetPerformanceCounter();
+    double busy_ms = 0;
     while(1) {
         windowed_bot_tick();
         Uint64 a = SDL_GetPerformanceCounter();
         uint32_t sleep_ms = lv_timer_handler();
-        app_note_loop_ms((float)((double)(SDL_GetPerformanceCounter() - a) * 1000.0 / (double)SDL_GetPerformanceFrequency()));
+        double loop_ms = ms_since(a);
+        busy_ms += loop_ms;
+        app_note_loop_ms((float)loop_ms);
         if(sleep_ms == LV_NO_TIMER_READY || sleep_ms > 16) sleep_ms = 16;
-        SDL_Delay(sleep_ms);
+        /* the bot's clock steps 16 ms a pass: wait only what is left of them */
+        if(windowed_bot_on()) sleep_ms = loop_ms >= 16.0 ? 0 : (uint32_t)(16.0 - loop_ms);
+#ifdef RR_FBDEV
+        double since = ms_since(log_at);
+        if(s_fbdev && since >= 5000.0) {
+            double n = s_frames > 0 ? (double)s_frames : 1.0, fb_ms = fbdev_take_flush_ms();
+            fprintf(stderr, "fbdev: %.1f fps, %.0f%% busy; a frame: game %.1f ms, LVGL %.1f ms (of which into the framebuffer %.1f ms)\n",
+                    s_frames * 1000.0 / since, busy_ms * 100.0 / since, s_game_ms / n, (busy_ms - s_game_ms) / n, fb_ms / n);
+            s_frames = 0;
+            s_game_ms = busy_ms = 0;
+            log_at = SDL_GetPerformanceCounter();
+        }
+#endif
+        if(sleep_ms) SDL_Delay(sleep_ms);
     }
 #endif
     return 0;

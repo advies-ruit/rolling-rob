@@ -2,7 +2,7 @@
 # The desktop program on a Linux device with only /dev/fb0, without one: a
 # plain file plays the framebuffer and a FIFO the keyboard (tests/fakefb.c,
 # LD_PRELOAD). Checks, for 480x272 and 1280x720 at 32 bits and 480x272 at
-# 16 bits: the bot plays two levels on it as it does headless (same times),
+# 16 bits, and once with a monotonic clock 29 days on: the bot plays two levels on it as it does headless (same times),
 # every pixel of a 32-bit framebuffer is opaque (alpha 0xFF), the picture
 # sits in the middle with black around it, and the keyboard is found. And
 # that without any screen the program says so and stops.
@@ -17,17 +17,22 @@ mkfifo "$T/kbd"
 want=$(HOME=$T "$PROG" --headless --bot --bot-levels 2 --seed 6 --frames 2000 --out "$T/h.raw" 2>&1 | grep '^total')
 echo "headless: $want"
 
-for mode in 480x272x32 1280x720x32 480x272x16; do
+# the last one as on a device up for 29 days: its monotonic clock in ms no
+# longer fits an int32 (the keyboard must still be found)
+for mode in 480x272x32 1280x720x32 480x272x16 480x272x32@up; do
+  up=; case $mode in *@up) up=2530000000; mode=${mode%@up} ;; esac
   w=${mode%%x*}; rest=${mode#*x}; h=${rest%%x*}; bpp=${rest#*x}
   rm -f "$T/fb" && truncate -s $((w * h * 2 * bpp / 8)) "$T/fb"
   # a writer keeps the keyboard FIFO open; it presses nothing
   sleep 60 > "$T/kbd" &
   writer=$!
   env -u DISPLAY -u WAYLAND_DISPLAY HOME="$T" ROLLING_ROB_FBDEV="$T/fb" FAKEFB="$T/fb" FAKEFB_MODE=$mode \
+    ${up:+FAKE_MONOTONIC_MS=$up} \
     FAKEKBD="$T/kbd" LD_PRELOAD="$T/fakefb.so" timeout 120 "$PROG" --bot --bot-levels 2 --seed 6 > "$T/out.txt" 2>&1 \
     || { cat "$T/out.txt"; kill $writer; exit 1; }
   kill $writer 2>/dev/null || true
-  grep -E '^(video|keyboard|total)' "$T/out.txt"
+  echo "== $mode${up:+, up ${up} ms}"
+  grep -E '^(video|keyboard|total|fbdev: [0-9])' "$T/out.txt"
   got=$(grep '^total' "$T/out.txt")
   [ "$got" = "$want" ] || { echo "check-fbdev: $mode: not as headless"; exit 1; }
   grep -q '^keyboard: /dev/input/event0' "$T/out.txt" || { echo "check-fbdev: $mode: no keyboard"; exit 1; }

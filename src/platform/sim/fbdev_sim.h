@@ -27,3 +27,6 @@ void fbdev_touch_create(lv_display_t * disp);
 /* Reads the keyboards (plugged in later ones too) into keys, indexed by
  * SDL scancode as SDL_GetKeyboardState is; pressed() for every press. */
 void fbdev_poll_keys(Uint8 * keys, void (*pressed)(SDL_Scancode sc));
+
+/* The time spent writing into the framebuffer since the last call, ms. */
+double fbdev_take_flush_ms(void);
