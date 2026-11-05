@@ -6,8 +6,8 @@
 # scaled to fill it (--scale 1), 1280x720 at two whole times
 # (ROLLING_ROB_FB_ZOOM=2), 1024x768 (another shape: black bars), and once with a monotonic clock 29 days on: the bot plays two levels on it as it does headless (same times),
 # every pixel of a 32-bit framebuffer is opaque (alpha 0xFF), the picture
-# sits where the log says (in the middle) with black around it, and the keyboard is found. And
-# that without any screen the program says so and stops.
+# sits where the log says (in the middle) with black around it, and the keyboard is found. That
+# SIGTERM ends it, and that without any screen the program says so and stops.
 #   tools/check-fbdev.sh <rolling_rob_sim> (from the source tree: art/)
 set -eu
 PROG=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
@@ -76,6 +76,24 @@ if ox or oy:
 print("check-fbdev: %dx%d at %d bits: picture %dx%d at %d,%d%s" % (w, h, bpp, pw, ph, ox, oy, ", every pixel opaque" if bpp == 32 else ""))
 PY
 done
+
+# stopped from outside (kill, timeout, Ctrl+C on a console where it has no
+# window): it ends, within a few seconds. Found as /dev/fb0, as on a device:
+# SDL has looked for a screen first (it took SIGINT and SIGTERM then)
+rm -f "$T/fb" && truncate -s $((1280 * 720 * 2 * 4)) "$T/fb"
+sleep 60 > "$T/kbd" &
+writer=$!
+env -u DISPLAY -u WAYLAND_DISPLAY -u ROLLING_ROB_FBDEV HOME="$T" FAKEFB="$T/fb" FAKEFB_AS_FB0=1 FAKEFB_MODE=1280x720x32 \
+  FAKEKBD="$T/kbd" LD_PRELOAD="$T/fakefb.so" "$PROG" --bot > "$T/out.txt" 2>&1 &
+p=$!
+sleep 5
+kill -TERM $p
+i=0
+while kill -0 $p 2>/dev/null && [ $i -lt 10 ]; do sleep 1; i=$((i + 1)); done
+kill $writer 2>/dev/null || true
+if kill -0 $p 2>/dev/null; then kill -9 $p; cat "$T/out.txt"; echo "check-fbdev: SIGTERM did not end it"; exit 1; fi
+grep -q '^video: /dev/fb0' "$T/out.txt" || { cat "$T/out.txt"; echo "check-fbdev: did not run on /dev/fb0"; exit 1; }
+echo "check-fbdev: on /dev/fb0, SIGTERM ended it within ${i} s"
 
 # no screen and no framebuffer: a message, and exit 1
 if env -u DISPLAY -u WAYLAND_DISPLAY ROLLING_ROB_FBDEV=/nonexistent "$PROG" > "$T/out.txt" 2>&1; then

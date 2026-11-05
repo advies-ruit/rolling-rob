@@ -33,6 +33,7 @@
 #include <emscripten.h>
 #endif
 #include <math.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -458,6 +459,15 @@ static bool sdl_screen(char * why, size_t why_n)
 }
 
 #ifdef RR_FBDEV
+/* The signal's own action again, unless it is ignored (SDL takes only
+ * those with the default action, so an ignored one is still the caller's:
+ * `cmd &` in a script ignores Ctrl+C) */
+static void default_signal(int sig)
+{
+    struct sigaction now;
+    if(sigaction(sig, NULL, &now) == 0 && now.sa_handler != SIG_IGN) signal(sig, SIG_DFL);
+}
+
 /* The picture for a framebuffer of fw x fh: --scale, else the saved
  * choice, else the largest that fits (at most x1 on 32-bit ARM, x2 on
  * 64-bit: the CPU draws every pixel). False if not even 480x272 fits. */
@@ -548,6 +558,14 @@ static int run_windowed(float zoom, int level)
             no_screen(why);
         }
         s_fbdev = true;
+        /* SDL turned Ctrl+C and SIGTERM into a quit event when it looked for
+         * a screen (and would again for the sound); without a window nothing
+         * reads those, so the program could not be stopped (kill, timeout,
+         * Ctrl+C on a serial or ssh console). Their own meaning again;
+         * fbdev_display_create puts the console back first where it took it. */
+        SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
+        default_signal(SIGINT);
+        default_signal(SIGTERM);
 #else
         no_screen(why);
 #endif

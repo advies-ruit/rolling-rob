@@ -5,6 +5,7 @@
  * two pages high; the file must be at least line length x 2H bytes.
  * $FAKEKBD: a FIFO that stands in for /dev/input/event0, a keyboard; what
  * is written to it (struct input_event) are its key presses.
+ * $FAKEFB_AS_FB0: /dev/fb0 opens $FAKEFB (see redirect).
  * $FAKE_MONOTONIC_MS: added to CLOCK_MONOTONIC, a device that has been up
  * that long (its ms no longer fit an int32 after ~25 days).
  *   cc -shared -fPIC -o fakefb.so tests/fakefb.c -ldl */
@@ -35,10 +36,13 @@ static int is_kbd(int fd)
     return path && fstat(fd, &a) == 0 && stat(path, &b) == 0 && a.st_dev == b.st_dev && a.st_ino == b.st_ino;
 }
 
-/* open: /dev/input/event0 is $FAKEKBD; other event devices are not there */
+/* open: /dev/input/event0 is $FAKEKBD; other event devices are not there.
+ * With $FAKEFB_AS_FB0 /dev/fb0 is $FAKEFB too: the program finds it as on a
+ * device, after SDL has looked for a screen. */
 static const char * redirect(const char * path)
 {
-    const char * kbd = getenv("FAKEKBD");
+    const char * kbd = getenv("FAKEKBD"), * fb = getenv("FAKEFB");
+    if(fb && getenv("FAKEFB_AS_FB0") && strcmp(path, "/dev/fb0") == 0) return fb;
     if(kbd && strncmp(path, "/dev/input/event", 16) == 0) return strcmp(path + 16, "0") == 0 ? kbd : "/nonexistent";
     return path;
 }
