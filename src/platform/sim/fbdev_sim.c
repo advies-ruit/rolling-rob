@@ -313,7 +313,12 @@ static SDL_Scancode scancode_of(unsigned code)
 }
 
 #define MAX_KEYBOARDS 8
-static int s_kbd[32]; /* fd + 1 by event number, 0: not open */
+static int s_kbd[32];   /* fd + 1 by event number, 0: not open */
+/* The other event devices stay open, unread, so the scan skips them: on some
+ * devices close() on a USB input device takes 40-100 ms, and a USB keyboard
+ * often has two more (consumer and system control) -- every two seconds a
+ * visible hitch. */
+static int s_other[32]; /* fd + 1, 0: none */
 static uint32_t s_next_scan_ms;
 static bool s_scanned; /* the first scan is due at once, whatever the clock says */
 
@@ -329,8 +334,18 @@ static void scan_keyboards(void)
 {
     int open_n = 0;
     for(int i = 0; i < 32; i++) open_n += s_kbd[i] != 0;
+    for(int i = 0; i < 32; i++) {
+        if(!s_other[i]) continue;
+        struct input_event e[16];
+        ssize_t n;
+        while((n = read(s_other[i] - 1, e, sizeof e)) > 0) {} /* nothing wanted from it */
+        if(n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) { /* unplugged */
+            close(s_other[i] - 1);
+            s_other[i] = 0;
+        }
+    }
     for(int i = 0; i < 32 && open_n < MAX_KEYBOARDS; i++) {
-        if(s_kbd[i]) continue;
+        if(s_kbd[i] || s_other[i]) continue;
         char path[32];
         snprintf(path, sizeof path, "/dev/input/event%d", i);
         int fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
@@ -340,7 +355,7 @@ static void scan_keyboards(void)
             open_n++;
             fprintf(stderr, "keyboard: %s\n", path);
         }
-        else close(fd);
+        else s_other[i] = fd + 1;
     }
 }
 
