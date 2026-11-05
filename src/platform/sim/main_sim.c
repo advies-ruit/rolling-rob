@@ -661,6 +661,9 @@ static int run_windowed(float zoom, int level)
             s_game_ms = busy_ms = 0;
             log_at = SDL_GetPerformanceCounter();
         }
+#else
+        (void)log_at; /* the log is the framebuffer's (Linux) */
+        (void)busy_ms;
 #endif
         if(sleep_ms) SDL_Delay(sleep_ms);
     }
