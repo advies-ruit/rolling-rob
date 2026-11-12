@@ -1,3 +1,5 @@
 build*/
+three/rolling-rob-3d.html
+three/site/
 *.log
 .DS_Store
