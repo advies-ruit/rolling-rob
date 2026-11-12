@@ -1,0 +1,214 @@
+{
+ "candy-earth": {
+  "leaf": false,
+  "sky": false
+ },
+ "candy-rock": {
+  "leaf": false,
+  "sky": false
+ },
+ "candy-surface": {
+  "leaf": false,
+  "sky": false
+ },
+ "cloud-big": {
+  "leaf": false,
+  "sky": true
+ },
+ "cloud-small": {
+  "leaf": false,
+  "sky": true
+ },
+ "cloud-torn": {
+  "leaf": false,
+  "sky": true
+ },
+ "cloud-wide": {
+  "leaf": false,
+  "sky": true
+ },
+ "clouds-cirrus": {
+  "leaf": false,
+  "sky": true
+ },
+ "clouds-far": {
+  "leaf": false,
+  "sky": true
+ },
+ "cyber-earth": {
+  "leaf": false,
+  "sky": false
+ },
+ "cyber-rock": {
+  "leaf": false,
+  "sky": false
+ },
+ "cyber-surface": {
+  "leaf": false,
+  "sky": false
+ },
+ "dark-earth": {
+  "leaf": false,
+  "sky": false
+ },
+ "desert-cactus-skin": {
+  "leaf": false,
+  "sky": false
+ },
+ "desert-dry-grass": {
+  "leaf": true,
+  "sky": false
+ },
+ "desert-earth": {
+  "leaf": false,
+  "sky": false
+ },
+ "desert-rock": {
+  "leaf": false,
+  "sky": false
+ },
+ "desert-surface": {
+  "leaf": false,
+  "sky": false
+ },
+ "forest-floor": {
+  "leaf": false,
+  "sky": false
+ },
+ "granite": {
+  "leaf": false,
+  "sky": false
+ },
+ "hell-earth": {
+  "leaf": false,
+  "sky": false
+ },
+ "hell-rock": {
+  "leaf": false,
+  "sky": false
+ },
+ "hell-surface": {
+  "leaf": false,
+  "sky": false
+ },
+ "jungle-bark": {
+  "leaf": false,
+  "sky": false
+ },
+ "jungle-broad-leaves": {
+  "leaf": true,
+  "sky": false
+ },
+ "jungle-earth": {
+  "leaf": false,
+  "sky": false
+ },
+ "jungle-fern": {
+  "leaf": true,
+  "sky": false
+ },
+ "jungle-palm-frond": {
+  "leaf": true,
+  "sky": false
+ },
+ "jungle-rock": {
+  "leaf": false,
+  "sky": false
+ },
+ "jungle-surface": {
+  "leaf": false,
+  "sky": false
+ },
+ "oak-leaves": {
+  "leaf": true,
+  "sky": false
+ },
+ "pine-bark": {
+  "leaf": false,
+  "sky": false
+ },
+ "pine-branch": {
+  "leaf": true,
+  "sky": false
+ },
+ "rainbow-earth": {
+  "leaf": false,
+  "sky": false
+ },
+ "rainbow-rock": {
+  "leaf": false,
+  "sky": false
+ },
+ "rainbow-surface": {
+  "leaf": false,
+  "sky": false
+ },
+ "smoke-big": {
+  "leaf": false,
+  "sky": true
+ },
+ "smoke-far": {
+  "leaf": false,
+  "sky": true
+ },
+ "smoke-small": {
+  "leaf": false,
+  "sky": true
+ },
+ "smoke-wide": {
+  "leaf": false,
+  "sky": true
+ },
+ "snow-earth": {
+  "leaf": false,
+  "sky": false
+ },
+ "snow-frosted-grass": {
+  "leaf": true,
+  "sky": false
+ },
+ "snow-pine-branch": {
+  "leaf": true,
+  "sky": false
+ },
+ "snow-rock": {
+  "leaf": false,
+  "sky": false
+ },
+ "snow-surface": {
+  "leaf": false,
+  "sky": false
+ },
+ "space-earth": {
+  "leaf": false,
+  "sky": false
+ },
+ "space-rock": {
+  "leaf": false,
+  "sky": false
+ },
+ "space-surface": {
+  "leaf": false,
+  "sky": false
+ },
+ "volcano-charred-bark": {
+  "leaf": false,
+  "sky": false
+ },
+ "volcano-earth": {
+  "leaf": false,
+  "sky": false
+ },
+ "volcano-rock": {
+  "leaf": false,
+  "sky": false
+ },
+ "volcano-surface": {
+  "leaf": false,
+  "sky": false
+ },
+ "wild-grass": {
+  "leaf": true,
+  "sky": false
+ }
+}

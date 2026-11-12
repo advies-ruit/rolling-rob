@@ -17,7 +17,8 @@ var CACHE = PREFIX + VERSION;
 /* the first releases named their one cache rolling-rob-<version> */
 var OLD_NAME = /^rolling-rob-[0-9a-f]{12}$/;
 var FILES = ['./', 'index.html', 'index.js', 'index.wasm', 'index.data',
-             'icon-192.png', 'icon-512.png', 'manifest.webmanifest'];
+             'icon-192.png', 'icon-512.png', 'manifest.webmanifest',
+             'card-original.webp', 'card-port.webp', 'card-3d.webp', 'original.html'];
 
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) {
@@ -42,14 +43,15 @@ self.addEventListener('message', function (e) {
 
 /* From the cache, the network only for what is not in it. The query string
  * (?scale=, ?music=) does not choose a different file. Other versions'
- * folders and the list of versions are not this worker's: straight to the
+ * folders, the list of versions and Rolling Rob 3D (3d/, its own worker)
+ * are not this worker's: straight to the
  * network (their own worker takes over once they have been opened). */
 self.addEventListener('fetch', function (e) {
   if (e.request.method !== 'GET') return;
   var url = new URL(e.request.url);
   if (url.origin !== location.origin || url.pathname.indexOf(SCOPE) !== 0) return;
   var rest = url.pathname.slice(SCOPE.length);
-  if (rest.indexOf('v/') === 0 || rest === 'versions.json') return;
+  if (rest.indexOf('v/') === 0 || rest.indexOf('3d/') === 0 || rest === 'versions.json') return;
   e.respondWith(caches.open(CACHE).then(function (c) {
     return c.match(e.request, { ignoreSearch: true }).then(function (hit) {
       return hit || fetch(e.request);
