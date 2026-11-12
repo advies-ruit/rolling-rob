@@ -16,6 +16,21 @@ an app and works offline.
   <img src="docs/level-4.webp" width="32%" alt="Level 4 in the painted look">
 </p>
 
+## Rolling Rob 3D
+
+Version 2.0 adds a second way to play: the original game itself, with its
+rules unchanged, and a three.js world drawn around it -- the sky, the
+mountain, Rob and the monsters in 3D, with shadows, effects and textures,
+or the original 2D picture if you prefer. Its menu (Esc or P) has the
+levels, a planned speedrun and ghosts to race, the settings and the
+offline copy. The start screen's "Play Rolling Rob 3D" button opens it at
+https://advies-ruit.github.io/rolling-rob/3d/, and its menu leads back.
+
+The source is in `three/`. `three/original.html` is the original game from
+vader.nl, included with its maker's permission. `three/build.py` adds the
+3D world to it with small text replacements, each checked to match exactly
+once, and writes the page into the site at `3d/` (`tools/build-web.sh`).
+
 ## Level 11
 
 Levels 1-10 are the original's. Level 11, Beyond the Summit, is a bonus
@@ -125,9 +140,26 @@ Which build is running: the app's Info page shows the version (the
 release tag), when it was built and its commit; the start screen shows the
 version and the build time.
 
+## Credits
+
+- Rolling Rob, the original game: [vader.nl](https://vader.nl/rolling-rob.html).
+  The 3D version includes it (`three/original.html`) with its maker's permission.
+- [three.js](https://threejs.org) r160 (`three/vendor/`), by the three.js
+  authors: MIT. It is kept in this repository so the site does not depend
+  on a CDN.
+
 ## Licences
 
-- The game code: licence not chosen yet (until then all rights reserved).
+- The code of this repository (the game, the app, the tools and the 3D
+  version's own files in `three/`): Mozilla Public License 2.0, see
+  `LICENSE`. Most of it was written with an AI coding assistant; the
+  licence covers whatever rights exist in it. The MPL works per file:
+  changes to these files are shared under the MPL, while other files
+  combined with them may keep their own licence.
 - The art (`art/`) and the music (`music/`): all rights reserved.
+- `three/original.html`: the original game by vader.nl, included with
+  permission; no licence of this repository applies to it.
+- three.js (`three/vendor/three.module.min.js`): MIT, see
+  `three/vendor/LICENSE-three.js.txt`.
 - LVGL (`third_party/lvgl`): MIT. miniaudio: public domain / MIT-0. SDL2
   (through Emscripten or the system): zlib. The Montserrat font in LVGL: OFL.

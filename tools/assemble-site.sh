@@ -44,5 +44,9 @@ for t in $GONE; do
   mkdir -p "$OUT/v/$t"
   sed "s/__TAG__/$t/g" web/retired/index.html > "$OUT/v/$t/index.html"
   cp web/retired/sw.js "$OUT/v/$t/sw.js"
+  # its 3D page (since v2.0) had a worker of its own: retire that one too
+  mkdir -p "$OUT/v/$t/3d"
+  sed "s/__TAG__/$t/g; s|\.\./\.\./|../../../|g" web/retired/index.html > "$OUT/v/$t/3d/index.html"
+  cp web/retired/sw.js "$OUT/v/$t/3d/sw.js"
 done
 cat "$OUT/versions.json"

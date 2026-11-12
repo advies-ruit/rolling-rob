@@ -7,11 +7,12 @@
 self.addEventListener('install', function () { self.skipWaiting(); });
 
 self.addEventListener('activate', function (e) {
-  var prefix = 'rolling-rob|' + new URL(self.registration.scope).pathname + '|';
+  /* rolling-rob|<scope>| and, for the 3D page of that version, rolling-rob-3d|<scope>| */
+  var scope = '|' + new URL(self.registration.scope).pathname + '|';
   e.waitUntil(self.clients.claim().then(function () {
     return caches.keys();
   }).then(function (keys) {
-    return Promise.all(keys.filter(function (k) { return k.indexOf(prefix) === 0; })
+    return Promise.all(keys.filter(function (k) { return /^rolling-rob(-3d)?\|/.test(k) && k.indexOf(scope) > 0; })
       .map(function (k) { return caches.delete(k); }));
   }).then(function () {
     return self.registration.unregister();
