@@ -28,10 +28,12 @@
 #include "level.h"
 #define SDL_MAIN_HANDLED /* our own main(), no SDL2main library (Windows) */
 #include <SDL2/SDL.h>
+#include "fbdev_sim.h" /* after SDL_MAIN_HANDLED: it includes SDL too */
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 #endif
 #include <math.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -70,6 +72,20 @@ static bool s_title_shot; /* headless --title: show the title screen */
  * from the event stream (event_filter) until the next poll. */
 static bool s_key_latch[SDL_NUM_SCANCODES];
 
+#if LV_USE_LINUX_FBDEV && LV_USE_EVDEV && !defined(__EMSCRIPTEN__)
+#define RR_FBDEV 1 /* the fallback on a Linux device with only /dev/fb0 */
+#endif
+
+/* The picture in /dev/fb0 (fbdev_sim.c), the keys from /dev/input in
+ * s_fb_keys: SDL has no window then, nor a keyboard state of its own. */
+static bool s_fbdev;
+static Uint8 s_fb_keys[SDL_NUM_SCANCODES];
+
+static const Uint8 * keyboard_state(void)
+{
+    return s_fbdev ? s_fb_keys : SDL_GetKeyboardState(NULL);
+}
+
 static bool key_down(const Uint8 * keys, SDL_Scancode sc)
 {
     bool down = keys[sc] || s_key_latch[sc];
@@ -79,7 +95,7 @@ static bool key_down(const Uint8 * keys, SDL_Scancode sc)
 
 static void poll_keyboard(void)
 {
-    const Uint8 * keys = SDL_GetKeyboardState(NULL);
+    const Uint8 * keys = keyboard_state();
     game_input_key(RR_KEY_LEFT,  key_down(keys, SDL_SCANCODE_LEFT));
     game_input_key(RR_KEY_RIGHT, key_down(keys, SDL_SCANCODE_RIGHT));
     game_input_key(RR_KEY_UP,    key_down(keys, SDL_SCANCODE_UP));
@@ -208,7 +224,7 @@ static int app_key_of(SDL_Scancode sc)
 
 bool app_key_held(int k)
 {
-    const Uint8 * kb = SDL_GetKeyboardState(NULL);
+    const Uint8 * kb = keyboard_state();
     if(k >= 'a' && k <= 'z') return kb[SDL_SCANCODE_A + (k - 'a')];
     switch(k) {
         case APP_KEY_SPACE: return kb[SDL_SCANCODE_SPACE];
@@ -218,6 +234,14 @@ bool app_key_held(int k)
         case APP_KEY_DOWN: return kb[SDL_SCANCODE_DOWN];
         default: return false;
     }
+}
+
+/* A key went down: for the game (latched till its next poll) and the app. */
+static void key_pressed(SDL_Scancode sc)
+{
+    s_key_latch[sc] = true;
+    int k = app_key_of(sc);
+    if(k) app_key(k);
 }
 
 static int SDLCALL event_filter(void * user, SDL_Event * e)
@@ -231,11 +255,8 @@ static int SDLCALL event_filter(void * user, SDL_Event * e)
      * zoom as its new resolution and show only part of the picture. */
     if(e->type == SDL_WINDOWEVENT && e->window.event == SDL_WINDOWEVENT_RESIZED) return 0;
 #endif
-    if(e->type == SDL_KEYDOWN && !e->key.repeat && e->key.keysym.scancode < SDL_NUM_SCANCODES) {
-        s_key_latch[e->key.keysym.scancode] = true;
-        int k = app_key_of(e->key.keysym.scancode);
-        if(k) app_key(k);
-    }
+    if(e->type == SDL_KEYDOWN && !e->key.repeat && e->key.keysym.scancode < SDL_NUM_SCANCODES)
+        key_pressed(e->key.keysym.scancode);
     /* A click with no mouse movement before it (a synthetic click, or the
      * very first one on a web page) can arrive without a window, and LVGL
      * drops events it cannot match to its window. There is only one. */
@@ -267,6 +288,20 @@ static int SDLCALL event_filter(void * user, SDL_Event * e)
     return 0; /* never to LVGL */
 }
 
+/* Where a frame's time goes (the log on a framebuffer, every 5 s) */
+static double s_game_ms; /* frame(): the game's logic and its drawing */
+static int s_frames;
+
+static double ms_since(Uint64 a)
+{
+    return (double)(SDL_GetPerformanceCounter() - a) * 1000.0 / (double)SDL_GetPerformanceFrequency();
+}
+
+static bool windowed_bot_step(void);
+static bool windowed_bot_begin(int level);
+static void windowed_bot_tick(void);
+static bool windowed_bot_on(void);
+
 static void render_timer_cb(lv_timer_t * timer)
 {
     LV_UNUSED(timer);
@@ -274,9 +309,16 @@ static void render_timer_cb(lv_timer_t * timer)
     uint32_t now_ms = lv_tick_get();
     uint32_t dt_ms = last_ms == 0 ? 16 : now_ms - last_ms;
     last_ms = now_ms;
-    if(app_game_input()) poll_keyboard();
+#ifdef RR_FBDEV
+    if(s_fbdev) fbdev_poll_keys(s_fb_keys, key_pressed);
+#endif
+    if(windowed_bot_step()) dt_ms = 16; /* the bot plays as headless: 16 ms a frame */
+    else if(app_game_input()) poll_keyboard();
     else drop_keys();
+    Uint64 g = SDL_GetPerformanceCounter();
     if(app_game_runs()) frame(dt_ms);
+    s_game_ms += ms_since(g);
+    s_frames++;
     app_tick(dt_ms);
     if(app_draws_frame()) {
         /* the 3D demo: its bands into the game's canvas */
@@ -318,6 +360,7 @@ EM_JS(int, web_has_webgl, (void), {
 
 static void web_loop(void)
 {
+    windowed_bot_tick();
     double a = emscripten_get_now();
     lv_timer_handler();
     app_note_loop_ms((float)(emscripten_get_now() - a));
@@ -408,6 +451,9 @@ void sim_scale_restart(void)
     web_restart();
 #endif
 }
+/* The largest choice: 4, or on a framebuffer what fits on it. */
+static int s_k_max = 4;
+int sim_scale_max(void) { return s_k_max; }
 
 #ifndef __EMSCRIPTEN__
 /* SDL windows with the screen's own pixels. LVGL creates its window itself
@@ -425,10 +471,75 @@ SDL_Window * SDLCALL rr_sdl_create_window(const char * title, int x, int y, int 
  * picture: --scale, else the saved choice (the Resolution line on Rolling
  * Rob's page), else auto -- as many screen pixels as the window has, like
  * the web page's Auto: x2 on a plain screen, x4 on a Retina one. */
+/* Without a screen there is nothing to play on: say so and stop, instead of
+ * running on unseen (SDL then falls back to its offscreen driver, or LVGL
+ * runs without a window -- no message, nothing shown, never ending). */
+static void no_screen(const char * what)
+{
+    fprintf(stderr,
+            "Rolling Rob: no screen to show the game on (%s).\n"
+            "It needs an X11 or Wayland desktop, KMS/DRM (/dev/dri) without one,\n"
+            "or on Linux a framebuffer (/dev/fb0) it may write to.\n",
+            what);
+    exit(1);
+}
+
+/* Has SDL a screen? Else false, and why. */
+static bool sdl_screen(char * why, size_t why_n)
+{
+    if(SDL_InitSubSystem(SDL_INIT_VIDEO) != 0) {
+        snprintf(why, why_n, "SDL: %s", SDL_GetError());
+        return false;
+    }
+    /* offscreen and dummy draw into memory only: fine when asked for
+     * (SDL_VIDEODRIVER), not when SDL settles for one as nothing else works */
+    const char * driver = SDL_GetCurrentVideoDriver();
+    const char * asked = getenv("SDL_VIDEODRIVER");
+    if(driver && (!strcmp(driver, "offscreen") || !strcmp(driver, "dummy")) && !(asked && strstr(asked, driver))) {
+        snprintf(why, why_n, "SDL found only its \"%s\" driver", driver);
+        SDL_QuitSubSystem(SDL_INIT_VIDEO);
+        return false;
+    }
+    fprintf(stderr, "video: %s\n", driver ? driver : "?");
+    return true;
+}
+
+#ifdef RR_FBDEV
+/* The signal's own action again, unless it is ignored (SDL takes only
+ * those with the default action, so an ignored one is still the caller's:
+ * `cmd &` in a script ignores Ctrl+C) */
+static void default_signal(int sig)
+{
+    struct sigaction now;
+    if(sigaction(sig, NULL, &now) == 0 && now.sa_handler != SIG_IGN) signal(sig, SIG_DFL);
+}
+
+/* The picture for a framebuffer of fw x fh: --scale, else the saved
+ * choice, else the largest that fits (at most x1 on 32-bit ARM, x2 on
+ * 64-bit: the CPU draws every pixel). False if not even 480x272 fits. */
+static bool choose_fb_size(int fw, int fh)
+{
+    const int lw = ROLLING_ROB_SCREEN_WIDTH, lh = ROLLING_ROB_SCREEN_HEIGHT;
+    int fit = fw / lw < fh / lh ? fw / lw : fh / lh;
+    if(fit < 1) return false;
+    s_k_max = fit > 4 ? 4 : fit;
+    int k = s_scale_given ? s_k : game_scale_choice();
+    if(k == 0) {
+        k = fit;
+#if defined(__arm__)
+        if(k > 1) k = 1;
+#elif defined(__aarch64__)
+        if(k > 2) k = 2;
+#endif
+    }
+    s_k = k < 1 ? 1 : k > fit ? fit : k > 4 ? 4 : k;
+    return true;
+}
+#endif
+
 static float choose_size(float zoom, bool zoom_given)
 {
     const float lw = (float)ROLLING_ROB_SCREEN_WIDTH, lh = (float)ROLLING_ROB_SCREEN_HEIGHT;
-    if(SDL_InitSubSystem(SDL_INIT_VIDEO) != 0) return s_scale_given ? zoom / (float)s_k : zoom;
     SDL_Rect r;
     if(!zoom_given && SDL_GetDisplayUsableBounds(0, &r) == 0) {
         float fit = fminf((float)r.w * 0.9f / lw, (float)r.h * 0.9f / lh);
@@ -474,11 +585,65 @@ static int run_windowed(float zoom, int level)
 #endif
 #ifndef __EMSCRIPTEN__
     game_load_settings(); /* the saved Resolution choice, before the window */
-    zoom = choose_size(zoom, s_zoom_given);
-    SDL_SetEventFilter(event_filter, NULL); /* before the window: see event_filter */
+    char why[512] = "";
+    /* ROLLING_ROB_FBDEV: straight to the framebuffer, whatever SDL has */
+    const char * fb_asked = getenv("ROLLING_ROB_FBDEV");
+    if((fb_asked && fb_asked[0]) || !sdl_screen(why, sizeof why)) {
+#ifdef RR_FBDEV
+        /* a Linux device with only /dev/fb0 */
+        int fw = 0, fh = 0;
+        char fb_why[256];
+        if(!fbdev_probe(&fw, &fh, fb_why, sizeof fb_why)) {
+            size_t n = strlen(why);
+            snprintf(why + n, sizeof why - n, "%s%s", n ? "; " : "", fb_why);
+            no_screen(why);
+        }
+        if(!choose_fb_size(fw, fh)) {
+            snprintf(why, sizeof why, "%s is %dx%d, smaller than %dx%d", fbdev_path(), fw, fh,
+                     ROLLING_ROB_SCREEN_WIDTH, ROLLING_ROB_SCREEN_HEIGHT);
+            no_screen(why);
+        }
+        s_fbdev = true;
+        /* SDL turned Ctrl+C and SIGTERM into a quit event when it looked for
+         * a screen (and would again for the sound); without a window nothing
+         * reads those, so the program could not be stopped (kill, timeout,
+         * Ctrl+C on a serial or ssh console). Their own meaning again;
+         * fbdev_display_create puts the console back first where it took it. */
+        SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
+        default_signal(SIGINT);
+        default_signal(SIGTERM);
+#else
+        no_screen(why);
+#endif
+    }
+    else {
+        zoom = choose_size(zoom, s_zoom_given);
+        SDL_SetEventFilter(event_filter, NULL); /* before the window: see event_filter */
+    }
 #endif
     lv_init();
-    lv_display_t * disp = lv_sdl_window_create(SCR_W, SCR_H);
+    lv_display_t * disp;
+#ifdef RR_FBDEV
+    if(s_fbdev) {
+        disp = fbdev_display_create(SCR_W, SCR_H);
+        if(disp == NULL) no_screen("the framebuffer could not be set up");
+        /* the canvas covers the picture: no background to clear */
+        lv_obj_set_style_bg_opa(lv_display_get_screen_active(disp), LV_OPA_TRANSP, 0);
+        fbdev_touch_create(disp);
+    }
+    else
+#endif
+    {
+    disp = lv_sdl_window_create(SCR_W, SCR_H);
+#ifndef __EMSCRIPTEN__
+    bool have_window = false; /* the probe in choose_size took id 1 */
+    for(Uint32 id = 1; id < 64 && !have_window; id++) have_window = SDL_GetWindowFromID(id) != NULL;
+    if(!disp || !have_window) {
+        char what[256];
+        snprintf(what, sizeof what, "no window: %s", SDL_GetError());
+        no_screen(what);
+    }
+#endif
     lv_sdl_window_set_zoom(disp, zoom);
 #ifndef __EMSCRIPTEN__
     /* LVGL centred the window at the picture's size and the zoom shrank (or
@@ -494,6 +659,7 @@ static int run_windowed(float zoom, int level)
 #endif
     lv_sdl_window_set_title(disp, "Rolling Rob");
     sim_display_opaque(disp);
+    }
     /* Show every 60 Hz tick, not LVGL's default 33 ms (30 fps); the desktop
      * and the browser have the headroom for it.
      * In the browser the animation frame sets the pace, and the clock it is
@@ -509,15 +675,18 @@ static int run_windowed(float zoom, int level)
     const char * refr_env = getenv("ROLLING_ROB_REFR_MS");
     if(refr_env && atoi(refr_env) > 0) refr_ms = (uint32_t)atoi(refr_env);
     lv_timer_set_period(lv_display_get_refr_timer(disp), refr_ms);
-    s_mouse = lv_sdl_mouse_create();
-    lv_sdl_keyboard_create();
-    for(Uint32 id = 1; id < 64 && s_window_id == 0; id++)
-        if(SDL_GetWindowFromID(id)) s_window_id = id;
-    SDL_SetEventFilter(event_filter, NULL);
+    if(!s_fbdev) {
+        s_mouse = lv_sdl_mouse_create();
+        lv_sdl_keyboard_create();
+        for(Uint32 id = 1; id < 64 && s_window_id == 0; id++)
+            if(SDL_GetWindowFromID(id)) s_window_id = id;
+        SDL_SetEventFilter(event_filter, NULL);
+    }
 
     create_canvas();
     game_init(SCR_W, SCR_H, VIEW_SCALE);
-    if(level > 0) game_goto_level(level);
+    if(windowed_bot_on()) { /* windowed_bot_begin, below */ }
+    else if(level > 0) game_goto_level(level);
     else if(!s_no_title) game_title_begin();
     music_init();
     hud_enable_art_tile(true);
@@ -526,6 +695,9 @@ static int run_windowed(float zoom, int level)
         hud_create(lv_screen_active());
         app_init(disp, SCR_W, SCR_H, s_k);
     }
+    /* --bot: it plays, from level 1 (or --level); after the app, which
+     * draws on rand() too, so with --seed the run is the headless one */
+    windowed_bot_begin(level);
     fps_overlay_create(disp, NULL);
     s_fps_overlay = true;
     fps_overlay_set_visible(s_fps || app_fps_wanted());
@@ -535,12 +707,35 @@ static int run_windowed(float zoom, int level)
     /* The browser owns the loop: one LVGL pass per animation frame. */
     emscripten_set_main_loop(web_loop, 0, 1);
 #else
+    Uint64 log_at = SDL_GetPerformanceCounter();
+    double busy_ms = 0;
     while(1) {
+        windowed_bot_tick();
         Uint64 a = SDL_GetPerformanceCounter();
         uint32_t sleep_ms = lv_timer_handler();
-        app_note_loop_ms((float)((double)(SDL_GetPerformanceCounter() - a) * 1000.0 / (double)SDL_GetPerformanceFrequency()));
+        double loop_ms = ms_since(a);
+        busy_ms += loop_ms;
+        app_note_loop_ms((float)loop_ms);
         if(sleep_ms == LV_NO_TIMER_READY || sleep_ms > 16) sleep_ms = 16;
-        SDL_Delay(sleep_ms);
+        /* the bot's clock steps 16 ms a pass: wait only what is left of them */
+        if(windowed_bot_on()) sleep_ms = loop_ms >= 16.0 ? 0 : (uint32_t)(16.0 - loop_ms);
+#ifdef RR_FBDEV
+        double since = ms_since(log_at);
+        if(s_fbdev && since >= 5000.0) {
+            double n = s_frames > 0 ? (double)s_frames : 1.0, fb_ms = fbdev_take_flush_ms();
+            fprintf(stderr, fbdev_writes_apart()
+                    ? "fbdev: %.1f fps, %.0f%% busy; a frame: game %.1f ms, LVGL %.1f ms; into the framebuffer, alongside: %.1f ms\n"
+                    : "fbdev: %.1f fps, %.0f%% busy; a frame: game %.1f ms, LVGL %.1f ms (of which into the framebuffer %.1f ms)\n",
+                    s_frames * 1000.0 / since, busy_ms * 100.0 / since, s_game_ms / n, (busy_ms - s_game_ms) / n, fb_ms / n);
+            s_frames = 0;
+            s_game_ms = busy_ms = 0;
+            log_at = SDL_GetPerformanceCounter();
+        }
+#else
+        (void)log_at; /* the log is the framebuffer's (Linux) */
+        (void)busy_ms;
+#endif
+        if(sleep_ms) SDL_Delay(sleep_ms);
     }
 #endif
     return 0;
@@ -607,6 +802,43 @@ static int s_record_every = 3;   /* --record-every N: every Nth frame (60/3 = 20
 
 static bool s_save_given;
 static bool s_music_ui;          /* --music-ui: show the music/art tiles without playing (screenshots) */
+
+/* --bot in a window (or on a framebuffer): the bot plays where it can be
+ * watched, 16 ms a frame as headless -- LVGL's clock too, a step per pass
+ * of the loop, so with --seed it is the same run --, says how it went and
+ * ends. The best times are left alone. */
+static uint32_t s_bot_tick;
+static uint32_t bot_tick_cb(void) { return s_bot_tick; }
+
+static bool windowed_bot_on(void) { return s_bot; }
+
+static void windowed_bot_tick(void)
+{
+    if(s_bot) s_bot_tick += 16;
+}
+
+static bool windowed_bot_begin(int level)
+{
+    if(!s_bot) return false;
+    s_bot_tick = lv_tick_get();
+    lv_tick_set_cb(bot_tick_cb);
+    if(!s_save_given) game_set_save_path("/dev/null");
+    if(s_seed >= 0) srand((unsigned)s_seed);
+    game_goto_level(level);
+    bot_init(s_bot_until, s_bot_single ? BOT_MODE_SINGLE : s_bot_noup ? BOT_MODE_NOUP : BOT_MODE_GLIDE);
+    return true;
+}
+
+static bool windowed_bot_step(void)
+{
+    static int32_t f;
+    if(!s_bot) return false;
+    if(!bot_step(f++)) {
+        bot_print_report();
+        exit(0);
+    }
+    return true;
+}
 
 static int run_headless(int frames, const char * out_path, int level)
 {

@@ -83,6 +83,7 @@ where each package is started and the bot plays all levels with it):
 | `Rolling-Rob-Linux-x86_64.AppImage` | Linux, x86-64 | `chmod +x`, start |
 | `Rolling-Rob-Linux-aarch64.AppImage` | Raspberry Pi (64-bit Raspberry Pi OS), Linux arm64 | `chmod +x`, start |
 | `Rolling-Rob-Linux-armhf.AppImage` | Raspberry Pi 2, 3, 4, 5, Zero 2 with 32-bit Raspberry Pi OS (ARMv7) | `chmod +x`, start |
+| `Rolling-Rob-Linux-<arch>.tar.gz` | the same three, for a system without FUSE or with only a framebuffer | unpack, start `Rolling-Rob/rolling-rob` |
 
 SDL2, the art and the music are inside each one. The packaging is in
 `tools/package-linux.sh`, `tools/package-windows.sh` and
@@ -106,9 +107,34 @@ The Linux AppImages are built in Debian 11 (`tools/build-linux.sh`), so
 they need glibc 2.31 or newer: Debian 11+, Ubuntu 20.04+, Raspberry Pi OS 11
 ("Bullseye") and newer. `tools/check-glibc.sh` checks every file in them for
 that, and the bot plays them in Debian 11. They use the static AppImage
-runtime, so no libfuse is needed; where FUSE is missing altogether, start one
-with `--appimage-extract-and-run`. The 32-bit ARM one needs ARMv7 (not a
+runtime, so no libfuse is needed; where FUSE is missing altogether (no
+`/dev/fuse`, "Cannot mount AppImage"), start one with
+`--appimage-extract-and-run`. The 32-bit ARM one needs ARMv7 (not a
 Raspberry Pi 1 or Zero).
+
+They show the game on an X11 or Wayland desktop, or, without one
+(Raspberry Pi OS Lite), with KMS/DRM (`/dev/dri`, with Mesa's libgbm and
+EGL installed). On a Linux device with only a framebuffer (`/dev/fb0`, a
+kernel without DRM) SDL has no screen; the program then draws straight
+into the framebuffer (`src/platform/sim/fbdev_sim.c`): the largest picture
+that fits, in the middle, every pixel opaque; keys from keyboards in
+`/dev/input` (plugged in at any time), a touchscreen there as the pointer,
+and the console in graphics mode while it runs. The user needs the groups
+`video` and `input`. For such a device the tar.gz is the better download:
+without FUSE an AppImage unpacks itself again at every start. With
+neither a screen nor a framebuffer the program says so and stops.
+
+On a framebuffer: `ROLLING_ROB_FBDEV=/dev/fb1` takes another one (and goes
+straight to it), `ROLLING_ROB_ROTATE=180` turns the picture and the touch
+round, `ROLLING_ROB_TOUCH_FLIP=1` only the touch; the picture is scaled
+to fill the framebuffer (480x272 to 1280x720 stretched 0.7 %, too little
+to see; a shape further off keeps its own, with black bars),
+`ROLLING_ROB_FB_ZOOM=1..4` shows it that many whole times instead, `1`
+unscaled (scaling costs a little time a frame); with more than one core the
+picture is written out on a thread of its own while LVGL draws the next
+one, `ROLLING_ROB_FB_THREAD=0` keeps that on LVGL's thread; `--bot` lets the bot play
+all levels where it can be watched. `tools/check-fbdev.sh` tests all this
+in CI with a file as the framebuffer (`tests/fakefb.c`).
 
 ## Tests
 
