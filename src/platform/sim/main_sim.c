@@ -396,15 +396,61 @@ static void find_data(void)
 #endif
 }
 
-bool sim_scale_choosable(void)
+bool sim_scale_choosable(void) { return true; }
+int sim_scale_now(void) { return s_k; }
+
+/* The Resolution choice (0 auto, 1-4). The desktop program keeps it in its
+ * save file and uses it at the next start. The web page keeps it in the
+ * browser (localStorage "rr-scale", which web/shell.html reads before it
+ * starts the game) and can restart at once: rrRestart() saves and reloads
+ * straight into the game. */
+#ifdef __EMSCRIPTEN__
+EM_JS(int, web_scale_get, (void), {
+    try { var v = parseInt(localStorage.getItem('rr-scale') || '0', 10); return v >= 0 && v <= 4 ? v : 0; }
+    catch(e) { return 0; }
+});
+EM_JS(void, web_scale_set, (int c), {
+    try { localStorage.setItem('rr-scale', String(c)); } catch(e) {}
+});
+EM_JS(void, web_restart, (void), {
+    if(typeof rrRestart === 'function') rrRestart(); else location.reload();
+});
+#endif
+static int s_scale_start = -1; /* the choice this run started with */
+int sim_scale_choice(void)
 {
 #ifdef __EMSCRIPTEN__
-    return false; /* the page chooses (web/shell.html, Resolution) */
+    int c = web_scale_get();
 #else
-    return true;
+    int c = game_scale_choice();
+#endif
+    if(s_scale_start < 0) s_scale_start = c;
+    return c;
+}
+void sim_scale_set_choice(int c)
+{
+    (void)sim_scale_choice(); /* notes the start value first */
+#ifdef __EMSCRIPTEN__
+    web_scale_set(c);
+#else
+    game_set_scale_choice(c);
 #endif
 }
-int sim_scale_now(void) { return s_k; }
+bool sim_scale_pending(void) { return sim_scale_choice() != s_scale_start; }
+bool sim_scale_can_restart(void)
+{
+#ifdef __EMSCRIPTEN__
+    return true;
+#else
+    return false; /* the desktop program: quit and start it again */
+#endif
+}
+void sim_scale_restart(void)
+{
+#ifdef __EMSCRIPTEN__
+    web_restart();
+#endif
+}
 /* The largest choice: 4, or on a framebuffer what fits on it. */
 static int s_k_max = 4;
 int sim_scale_max(void) { return s_k_max; }

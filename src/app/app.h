@@ -91,6 +91,11 @@ int app_fingers(int * most);
 bool sim_scale_choosable(void);
 int sim_scale_now(void);
 int sim_scale_max(void); /* the largest choice that fits (1-4) */
+int sim_scale_choice(void);          /* 0 auto, 1-4 */
+void sim_scale_set_choice(int c);
+bool sim_scale_pending(void);        /* chosen differs from what this run started with */
+bool sim_scale_can_restart(void);    /* the web page: restart at once */
+void sim_scale_restart(void);
 
 /* main_sim.c: an SDL window the program covers whole needs no alpha and no
  * screen background (saves two full-screen passes per frame). */

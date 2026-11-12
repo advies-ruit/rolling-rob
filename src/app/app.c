@@ -380,22 +380,27 @@ static void rob_fps(int dir) { (void)dir; game_set_fps_enabled(!game_fps_enabled
 static const char * rob_scale_value(void)
 {
     static char buf[48];
-    int c = game_scale_choice(), now = sim_scale_now();
+    int c = sim_scale_choice(), now = sim_scale_now();
     static const char * px[5] = { "", "480x272", "960x544", "1440x816", "1920x1088" };
     if(c == 0) snprintf(buf, sizeof(buf), "auto (%s)", px[now]);
     else if(c == now) snprintf(buf, sizeof(buf), "%s", px[c]);
     else snprintf(buf, sizeof(buf), "%s, restart", px[c]); /* takes effect at the next start */
+    if(c == 0 && sim_scale_pending()) snprintf(buf, sizeof(buf), "auto, restart");
     return buf;
 }
 static void rob_scale(int dir)
 {
     /* auto, x1 .. as large as fits (x4 in a window), round again */
-    int n = sim_scale_max() + 1, c = game_scale_choice();
+    int n = sim_scale_max() + 1, c = sim_scale_choice();
     if(c >= n) c = 0;
     c = (c + (dir < 0 ? n - 1 : 1)) % n;
-    game_set_scale_choice(c);
+    sim_scale_set_choice(c);
 }
 static bool rob_scale_shown(void) { return sim_scale_choosable(); }
+/* the web page restarts at once (it keeps the best times); the desktop
+ * program uses the choice at its next start */
+static void rob_scale_restart(int dir) { (void)dir; sim_scale_restart(); }
+static bool rob_scale_restart_shown(void) { return sim_scale_can_restart() && sim_scale_pending(); }
 
 static const char * rob_best(void)
 {
@@ -433,6 +438,7 @@ static const page_row_t k_rob_rows[] = {
     { "Order", NULL, rob_order_value, rob_order, rob_has_music, 'o' },
     { "Frame counter", NULL, rob_fps_value, rob_fps, NULL, 'f' },
     { "Resolution", NULL, rob_scale_value, rob_scale, rob_scale_shown, 0 },
+    { "Restart at this resolution", NULL, NULL, rob_scale_restart, rob_scale_restart_shown, 0 },
 };
 
 /* ---- the other games: Play / Continue and New game, and their own lines ---- */

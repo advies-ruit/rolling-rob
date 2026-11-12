@@ -1,0 +1,2154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rolling Rob</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background: #000;
+            font-family: Arial, sans-serif;
+        }
+        #gameContainer {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100vw;
+            height: 100vh;
+        }
+        canvas {
+            display: block;
+            max-width: 100vw;
+            max-height: 100vh;
+            cursor: crosshair;
+        }
+        #title {
+            position: absolute;
+            top: 10px;
+            right: 20px;
+            font-size: 32px;
+            font-weight: bold;
+            color: #FFD700;
+            text-shadow: 3px 3px 6px rgba(0,0,0,0.8);
+            z-index: 10;
+        }
+        #levelSelect {
+            position: absolute;
+            top: 50px;
+            right: 20px;
+            font-size: 16px;
+            color: #FFF;
+            z-index: 10;
+        }
+        #levelSelect select {
+            font-size: 14px;
+            padding: 5px 10px;
+            margin-left: 8px;
+            background: rgba(0,0,0,0.8);
+            color: #FFF;
+            border: 2px solid #FFD700;
+            border-radius: 5px;
+        }
+        #score {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            font-size: 28px;
+            font-weight: bold;
+            color: #FFD700;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            z-index: 10;
+        }
+        #info {
+            position: absolute;
+            bottom: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 28px;
+            color: #FFF;
+            text-shadow: 3px 3px 6px rgba(0,0,0,1);
+            z-index: 10;
+            max-width: 900px;
+            text-align: center;
+            background: rgba(0,0,0,0.6);
+            padding: 15px 30px;
+            border-radius: 10px;
+        }
+        button {
+            position: absolute;
+            bottom: 20px;
+            padding: 12px 25px;
+            font-size: 18px;
+            cursor: pointer;
+            background: #4CAF50;
+            color: white;
+            border: 2px solid #FFD700;
+            border-radius: 5px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.5);
+            z-index: 10;
+        }
+        #resetBtn {
+            left: 50%;
+            transform: translateX(-130px);
+        }
+        #nextBtn {
+            left: 50%;
+            transform: translateX(30px);
+        }
+        button:hover {
+            background: #45a049;
+            transform: translateX(-130px) scale(1.05);
+        }
+        #nextBtn:hover {
+            transform: translateX(30px) scale(1.05);
+        }
+        button:active {
+            transform: translateX(-130px) translateY(2px) scale(1.05);
+        }
+        #nextBtn:active {
+            transform: translateX(30px) translateY(2px) scale(1.05);
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas" width="1920" height="1080"></canvas>
+    </div>
+    <div id="title">Rolling Rob: Vader Edition</div>
+    <div id="levelSelect">
+        Level:
+        <select id="levelDropdown">
+            <option value="0">1 - Beginner's Hill</option>
+            <option value="1">2 - Rocky Ridge</option>
+            <option value="2">3 - Steep Slope</option>
+            <option value="3">4 - Boulder Boulevard</option>
+            <option value="4">5 - Danger Drop</option>
+            <option value="5">6 - Extreme Edge</option>
+            <option value="6">7 - Mega Mountain</option>
+            <option value="7">8 - Insane Incline</option>
+            <option value="8">9 - Death Descent</option>
+            <option value="9">10 - Ultimate Challenge</option>
+        </select>
+    </div>
+    <div id="score">Distance: 0m</div>
+    <div id="info">Click on Darth Vader to push him down the mountain!</div>
+    <button id="resetBtn">Reset Level</button>
+    <button id="nextBtn" style="display:none;">Next Level</button>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreDisplay = document.getElementById('score');
+        const infoDisplay = document.getElementById('info');
+        const levelDropdown = document.getElementById('levelDropdown');
+        const nextBtn = document.getElementById('nextBtn');
+
+        // Game state
+        let gameStarted = false;
+        let gameOver = false;
+        let gameWon = false;
+        let distance = 0;
+        let currentLevel = 0;
+        let finishLine = 0;
+        let autoAdvanceTimer = 0;
+
+        // Camera system
+        let cameraX = 0;
+        let cameraY = 0;
+
+        // Celebration effects
+        let confetti = [];
+        let fireworks = [];
+
+        // Input state
+        let isMouseDown = false;
+        let mouseDownTime = 0;
+        let isSpaceDown = false;
+        let spaceDownTime = 0;
+        let keysPressed = {
+            ArrowLeft: false,
+            ArrowRight: false,
+            ArrowUp: false,
+            ArrowDown: false
+        };
+
+        // Explosion particles
+        let explosionParticles = [];
+
+        // Flying saucers
+        let saucers = [];
+        let beamActive = false;
+        let beamTarget = null;
+        let beamProgress = 0;
+
+        // Julian bosses (multiple)
+        let julians = [];
+        let fireballs = [];
+
+        // Deadly mines (explosive obstacles)
+        let mines = [];
+
+        // Checkpoints (level 10 only)
+        let checkpoints = [];
+        let lastCheckpoint = -1;
+
+        // Rob properties
+        const rob = {
+            x: 200,
+            y: 150,
+            radius: 30,
+            vx: 0,
+            vy: 0,
+            rotation: 0,
+            gravity: 0.4,
+            bounce: 0.6,
+            friction: 0.98,
+            jumpsUsed: 0,
+            onGround: false
+        };
+
+        // Mountain terrain
+        const mountainPoints = [];
+        let obstacles = [];
+
+        // Level configurations with themes (scaled for 1920x1080) - INCREASINGLY LONGER!
+        const levels = [
+            { name: "Beginner's Hill", theme: "forest", numPoints: 60, steepness: 0.3, obstacleCount: 8, finishDistance: 1800, skyColor1: "#87CEEB", skyColor2: "#90EE90", groundColor: "#8B7355", monsterType: "slime" },
+            { name: "Rocky Ridge", theme: "desert", numPoints: 85, steepness: 0.5, obstacleCount: 10, finishDistance: 2800, skyColor1: "#FFB347", skyColor2: "#FFA500", groundColor: "#D2691E", monsterType: "cactus" },
+            { name: "Steep Slope", theme: "snow", numPoints: 110, steepness: 0.7, obstacleCount: 12, finishDistance: 3800, skyColor1: "#B0E0E6", skyColor2: "#F0F8FF", groundColor: "#E0E0E0", monsterType: "yeti" },
+            { name: "Boulder Boulevard", theme: "volcano", numPoints: 140, steepness: 0.9, obstacleCount: 14, finishDistance: 4800, skyColor1: "#8B0000", skyColor2: "#FF4500", groundColor: "#654321", monsterType: "lava" },
+            { name: "Danger Drop", theme: "jungle", numPoints: 175, steepness: 1.1, obstacleCount: 16, finishDistance: 5800, skyColor1: "#228B22", skyColor2: "#90EE90", groundColor: "#556B2F", monsterType: "plant" },
+            { name: "Extreme Edge", theme: "space", numPoints: 215, steepness: 1.3, obstacleCount: 18, finishDistance: 6800, skyColor1: "#000033", skyColor2: "#1a1a4d", groundColor: "#4a4a4a", monsterType: "alien" },
+            { name: "Mega Mountain", theme: "candy", numPoints: 260, steepness: 1.5, obstacleCount: 20, finishDistance: 7800, skyColor1: "#FFB6C1", skyColor2: "#FFC0CB", groundColor: "#DDA0DD", monsterType: "candy" },
+            { name: "Insane Incline", theme: "cyber", numPoints: 310, steepness: 1.7, obstacleCount: 22, finishDistance: 8800, skyColor1: "#0F0F3F", skyColor2: "#1F1F6F", groundColor: "#2F2F4F", monsterType: "robot" },
+            { name: "Death Descent", theme: "hell", numPoints: 365, steepness: 1.9, obstacleCount: 24, finishDistance: 9800, skyColor1: "#330000", skyColor2: "#660000", groundColor: "#4d0000", monsterType: "demon" },
+            { name: "Ultimate Challenge", theme: "rainbow", numPoints: 425, steepness: 2.1, obstacleCount: 26, finishDistance: 10800, skyColor1: "#9400D3", skyColor2: "#FFD700", groundColor: "#FF69B4", monsterType: "crystal" }
+        ];
+
+        function generateMountain(level) {
+            const config = levels[level];
+            mountainPoints.length = 0;
+            mountainPoints.push({ x: 0, y: 200 });
+
+            let currentX = 0;
+            let currentY = 200;
+
+            for (let i = 1; i < config.numPoints; i++) {
+                currentX += 30 + Math.random() * 40;
+                currentY += Math.random() * 120 * config.steepness - 20;
+                currentY = Math.max(400, Math.min(950, currentY));
+                mountainPoints.push({ x: currentX, y: currentY });
+            }
+
+            mountainPoints.push({ x: currentX + 150, y: 1080 });
+            mountainPoints.push({ x: 0, y: 1080 });
+
+            finishLine = currentX - 300;
+
+            // Generate monsters (larger for HD)
+            obstacles = [];
+            for (let i = 0; i < config.obstacleCount; i++) {
+                const x = 400 + i * (finishLine / config.obstacleCount) + Math.random() * 100;
+                obstacles.push({
+                    x: x,
+                    y: getTerrainHeight(x) - 60,
+                    width: 60,
+                    height: 60,
+                    type: config.monsterType
+                });
+            }
+
+            // Generate flying saucers (more with each level) - hunting behavior with random positions
+            saucers = [];
+            const saucerCount = Math.floor(config.obstacleCount / 2) + level * 2;
+            for (let i = 0; i < saucerCount; i++) {
+                saucers.push({
+                    x: 300 + Math.random() * (finishLine - 300),
+                    y: 150 + Math.random() * 400,
+                    width: 80,
+                    height: 40,
+                    vx: 0,
+                    vy: 0,
+                    hunting: true,
+                    beamTimer: Math.random() * 300,
+                    phase: Math.random() * Math.PI * 2
+                });
+            }
+
+            // Generate deadly mines
+            mines = [];
+            const mineCount = Math.floor(level / 2) + 2;
+            for (let i = 0; i < mineCount; i++) {
+                const x = 600 + i * 500 + Math.random() * 200;
+                mines.push({
+                    x: x,
+                    y: getTerrainHeight(x) - 40,
+                    radius: 20,
+                    pulse: Math.random() * Math.PI * 2
+                });
+            }
+
+            // Julian bosses - increasingly more with each level (starting from level 4)
+            julians = [];
+            fireballs = [];
+            const julianCount = Math.max(0, level - 2); // Level 1=0, Level 2=0, Level 3=1, Level 4=2, ..., Level 10=8
+
+            for (let i = 0; i < julianCount; i++) {
+                const spacing = finishLine / (julianCount + 1);
+                const julianX = 800 + spacing * (i + 1) + (Math.random() - 0.5) * 300;
+
+                julians.push({
+                    x: julianX,
+                    y: getTerrainHeight(julianX) - 120,
+                    width: 100,
+                    height: 120,
+                    vy: 0,
+                    jumpTimer: Math.random() * 120,
+                    fireTimer: Math.random() * 90
+                });
+            }
+
+            // Checkpoints (level 10 only)
+            checkpoints = [];
+            lastCheckpoint = -1;
+            if (level === 9) { // Level 10
+                const checkpointCount = 5;
+                for (let i = 0; i < checkpointCount; i++) {
+                    const checkpointX = 1500 + (finishLine - 1500) * ((i + 1) / (checkpointCount + 1));
+                    checkpoints.push({
+                        x: checkpointX,
+                        y: getTerrainHeight(checkpointX) - 100,
+                        width: 60,
+                        height: 100,
+                        activated: false
+                    });
+                }
+            }
+        }
+
+        function getTerrainHeight(x) {
+            for (let i = 0; i < mountainPoints.length - 1; i++) {
+                const p1 = mountainPoints[i];
+                const p2 = mountainPoints[i + 1];
+
+                if (x >= p1.x && x <= p2.x) {
+                    const t = (x - p1.x) / (p2.x - p1.x);
+                    return p1.y + (p2.y - p1.y) * t;
+                }
+            }
+            return 600;
+        }
+
+        function drawRob() {
+            ctx.save();
+            ctx.translate(rob.x, rob.y);
+            ctx.rotate(rob.rotation);
+
+            // Stoner dude - main head (dark sphere)
+            ctx.fillStyle = '#1a1a1a';
+            ctx.beginPath();
+            ctx.arc(0, 0, rob.radius, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Head outline for depth
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 3;
+            ctx.stroke();
+
+            // Helmet shine
+            ctx.fillStyle = '#444';
+            ctx.beginPath();
+            ctx.arc(-8, -10, 8, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Yellow stoner eyes (bloodshot)
+            ctx.fillStyle = '#FFD700';
+            ctx.beginPath();
+            ctx.arc(-8, -5, 5, 0, Math.PI * 2);
+            ctx.arc(8, -5, 5, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Red bloodshot effect
+            ctx.strokeStyle = '#FF0000';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(-10, -5);
+            ctx.lineTo(-6, -5);
+            ctx.moveTo(-8, -7);
+            ctx.lineTo(-8, -3);
+            ctx.moveTo(6, -5);
+            ctx.lineTo(10, -5);
+            ctx.moveTo(8, -7);
+            ctx.lineTo(8, -3);
+            ctx.stroke();
+
+            // Pupils
+            ctx.fillStyle = '#000';
+            ctx.beginPath();
+            ctx.arc(-8, -5, 2, 0, Math.PI * 2);
+            ctx.arc(8, -5, 2, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Big stoner grin
+            ctx.strokeStyle = '#FFD700';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(0, 3, 12, 0.1, Math.PI - 0.1);
+            ctx.stroke();
+
+            // Teeth
+            ctx.fillStyle = '#FFF';
+            for (let i = -8; i <= 8; i += 4) {
+                ctx.fillRect(i, 8, 3, 4);
+            }
+
+            // Joint in mouth
+            ctx.fillStyle = '#FFF';
+            ctx.fillRect(12, 5, 18, 3);
+
+            // Joint tip (lit)
+            ctx.fillStyle = '#FF4500';
+            ctx.beginPath();
+            ctx.arc(30, 6.5, 3, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Smoke particles
+            const time = Date.now() / 100;
+            for (let i = 0; i < 5; i++) {
+                ctx.fillStyle = `rgba(200, 200, 200, ${0.6 - i * 0.1})`;
+                ctx.beginPath();
+                const offset = (time + i * 0.5) % 3;
+                ctx.arc(30 + offset * 8, 6.5 - offset * 12, 3 + offset * 2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Breathing apparatus
+            ctx.fillStyle = '#2a2a2a';
+            ctx.beginPath();
+            ctx.moveTo(-10, 15);
+            ctx.lineTo(-10, 22);
+            ctx.lineTo(10, 22);
+            ctx.lineTo(10, 15);
+            ctx.closePath();
+            ctx.fill();
+
+            // Grille details
+            ctx.strokeStyle = '#555';
+            ctx.lineWidth = 2;
+            for (let i = -8; i <= 8; i += 4) {
+                ctx.beginPath();
+                ctx.moveTo(i, 16);
+                ctx.lineTo(i, 21);
+                ctx.stroke();
+            }
+
+            // Cape/hoodie
+            ctx.fillStyle = '#000';
+            ctx.beginPath();
+            ctx.arc(0, 0, rob.radius + 5, Math.PI * 0.25, Math.PI * 0.75);
+            ctx.fill();
+
+            ctx.restore();
+        }
+
+        function drawFinishLine() {
+            const terrainY = getTerrainHeight(finishLine);
+            ctx.fillStyle = 'rgba(255, 215, 0, 0.3)';
+            ctx.fillRect(finishLine - 5, 0, 10, terrainY);
+
+            ctx.strokeStyle = '#FFD700';
+            ctx.lineWidth = 4;
+            ctx.setLineDash([10, 10]);
+            ctx.beginPath();
+            ctx.moveTo(finishLine, 0);
+            ctx.lineTo(finishLine, terrainY);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            ctx.fillStyle = '#FFD700';
+            ctx.font = 'bold 20px Arial';
+            ctx.fillText('FINISH', finishLine - 35, terrainY + 30);
+        }
+
+        function drawCheckpoints() {
+            for (let i = 0; i < checkpoints.length; i++) {
+                const cp = checkpoints[i];
+
+                // Flag pole
+                ctx.fillStyle = cp.activated ? '#00FF00' : '#FF0000';
+                ctx.fillRect(cp.x, cp.y, 8, cp.height);
+
+                // Flag
+                ctx.fillStyle = cp.activated ? 'rgba(0, 255, 0, 0.7)' : 'rgba(255, 0, 0, 0.7)';
+                ctx.beginPath();
+                ctx.moveTo(cp.x + 8, cp.y);
+                ctx.lineTo(cp.x + cp.width, cp.y + 20);
+                ctx.lineTo(cp.x + 8, cp.y + 40);
+                ctx.closePath();
+                ctx.fill();
+
+                // Checkpoint number
+                ctx.fillStyle = '#FFF';
+                ctx.font = 'bold 16px Arial';
+                ctx.fillText(`CP${i + 1}`, cp.x + 15, cp.y + 25);
+
+                // Glow effect if activated
+                if (cp.activated) {
+                    ctx.fillStyle = 'rgba(0, 255, 0, 0.3)';
+                    ctx.beginPath();
+                    ctx.arc(cp.x + 4, cp.y + cp.height / 2, 40, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+        }
+
+        function createConfetti() {
+            for (let i = 0; i < 100; i++) {
+                confetti.push({
+                    x: rob.x + (Math.random() - 0.5) * 100,
+                    y: rob.y - Math.random() * 50,
+                    vx: (Math.random() - 0.5) * 10,
+                    vy: -Math.random() * 10 - 5,
+                    color: `hsl(${Math.random() * 360}, 100%, 50%)`,
+                    size: Math.random() * 5 + 3,
+                    rotation: Math.random() * Math.PI * 2,
+                    rotationSpeed: (Math.random() - 0.5) * 0.3
+                });
+            }
+        }
+
+        function updateConfetti() {
+            for (let i = confetti.length - 1; i >= 0; i--) {
+                const c = confetti[i];
+                c.vy += 0.3;
+                c.x += c.vx;
+                c.y += c.vy;
+                c.rotation += c.rotationSpeed;
+
+                if (c.y > canvas.height) {
+                    confetti.splice(i, 1);
+                }
+            }
+        }
+
+        function drawConfetti() {
+            for (const c of confetti) {
+                ctx.save();
+                ctx.translate(c.x, c.y);
+                ctx.rotate(c.rotation);
+                ctx.fillStyle = c.color;
+                ctx.fillRect(-c.size / 2, -c.size / 2, c.size, c.size);
+                ctx.restore();
+            }
+        }
+
+        function createFirework(x, y) {
+            const particles = 50;
+            for (let i = 0; i < particles; i++) {
+                const angle = (Math.PI * 2 * i) / particles;
+                const speed = Math.random() * 3 + 2;
+                fireworks.push({
+                    x: x,
+                    y: y,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    color: `hsl(${Math.random() * 360}, 100%, 50%)`,
+                    life: 1.0,
+                    size: Math.random() * 3 + 2
+                });
+            }
+        }
+
+        function updateFireworks() {
+            for (let i = fireworks.length - 1; i >= 0; i--) {
+                const f = fireworks[i];
+                f.x += f.vx;
+                f.y += f.vy;
+                f.vy += 0.1;
+                f.life -= 0.02;
+
+                if (f.life <= 0) {
+                    fireworks.splice(i, 1);
+                }
+            }
+        }
+
+        function drawFireworks() {
+            for (const f of fireworks) {
+                ctx.globalAlpha = f.life;
+                ctx.fillStyle = f.color;
+                ctx.beginPath();
+                ctx.arc(f.x, f.y, f.size, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1.0;
+        }
+
+        let fireworkTimer = 0;
+
+        function drawSky() {
+            const config = levels[currentLevel];
+            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            gradient.addColorStop(0, config.skyColor1);
+            gradient.addColorStop(1, config.skyColor2);
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, finishLine + 1000, canvas.height * 2);
+
+            // SPACE THEME - Full celestial party!
+            if (config.theme === "space") {
+                // Multiple moons
+                for (let i = 0; i < 3; i++) {
+                    const moonX = (i * 800 + cameraX * 0.05) % (finishLine + 1500);
+                    const moonY = 150 + i * 100;
+                    const moonSize = 60 + i * 20;
+
+                    // Moon
+                    const moonGrad = ctx.createRadialGradient(moonX - 15, moonY - 15, 10, moonX, moonY, moonSize);
+                    moonGrad.addColorStop(0, '#FFF');
+                    moonGrad.addColorStop(1, '#999');
+                    ctx.fillStyle = moonGrad;
+                    ctx.beginPath();
+                    ctx.arc(moonX, moonY, moonSize, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // Craters
+                    ctx.fillStyle = 'rgba(100,100,100,0.3)';
+                    for (let j = 0; j < 5; j++) {
+                        const craterAngle = (j / 5) * Math.PI * 2;
+                        const craterDist = moonSize * 0.6;
+                        const craterX = moonX + Math.cos(craterAngle) * craterDist;
+                        const craterY = moonY + Math.sin(craterAngle) * craterDist;
+                        ctx.beginPath();
+                        ctx.arc(craterX, craterY, moonSize * 0.2, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                }
+
+                // Sun (far away)
+                const sunX = (cameraX * 0.02 + 500) % (finishLine + 2000);
+                const sunY = 100;
+                const sunGrad = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, 150);
+                sunGrad.addColorStop(0, '#FFFF00');
+                sunGrad.addColorStop(0.3, '#FFA500');
+                sunGrad.addColorStop(1, 'rgba(255,165,0,0)');
+                ctx.fillStyle = sunGrad;
+                ctx.beginPath();
+                ctx.arc(sunX, sunY, 150, 0, Math.PI * 2);
+                ctx.fill();
+                // Sun core
+                ctx.fillStyle = '#FFFF00';
+                ctx.beginPath();
+                ctx.arc(sunX, sunY, 80, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Planets with rings
+                for (let i = 0; i < 2; i++) {
+                    const planetX = (i * 1000 + cameraX * 0.04 + 300) % (finishLine + 1800);
+                    const planetY = 200 + i * 150;
+                    const planetSize = 70 + i * 30;
+
+                    // Planet
+                    const planetGrad = ctx.createRadialGradient(planetX - 20, planetY - 20, 10, planetX, planetY, planetSize);
+                    planetGrad.addColorStop(0, ['#FF6B9D', '#4B0082'][i]);
+                    planetGrad.addColorStop(1, ['#8B008B', '#1a0033'][i]);
+                    ctx.fillStyle = planetGrad;
+                    ctx.beginPath();
+                    ctx.arc(planetX, planetY, planetSize, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // Rings
+                    ctx.strokeStyle = 'rgba(200,150,100,0.5)';
+                    ctx.lineWidth = 8;
+                    ctx.beginPath();
+                    ctx.ellipse(planetX, planetY, planetSize * 1.5, planetSize * 0.4, Math.PI * 0.2, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.lineWidth = 5;
+                    ctx.strokeStyle = 'rgba(255,200,150,0.3)';
+                    ctx.beginPath();
+                    ctx.ellipse(planetX, planetY, planetSize * 1.7, planetSize * 0.5, Math.PI * 0.2, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+
+                // Black hole
+                const blackHoleX = (cameraX * 0.03 + 1200) % (finishLine + 2000);
+                const blackHoleY = 250;
+                const blackHoleGrad = ctx.createRadialGradient(blackHoleX, blackHoleY, 0, blackHoleX, blackHoleY, 100);
+                blackHoleGrad.addColorStop(0, '#000');
+                blackHoleGrad.addColorStop(0.5, '#1a0033');
+                blackHoleGrad.addColorStop(0.7, '#4B0082');
+                blackHoleGrad.addColorStop(1, 'rgba(75,0,130,0)');
+                ctx.fillStyle = blackHoleGrad;
+                ctx.beginPath();
+                ctx.arc(blackHoleX, blackHoleY, 100, 0, Math.PI * 2);
+                ctx.fill();
+                // Accretion disk
+                ctx.strokeStyle = 'rgba(255,100,0,0.4)';
+                ctx.lineWidth = 3;
+                for (let i = 0; i < 5; i++) {
+                    ctx.beginPath();
+                    ctx.ellipse(blackHoleX, blackHoleY, 40 + i * 15, 10 + i * 5, Math.PI * 0.3, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+
+                // Asteroids everywhere!
+                for (let i = 0; i < 30; i++) {
+                    const astX = (i * 250 + cameraX * 0.6 + Date.now() / 50) % (finishLine + 1500);
+                    const astY = (i * 137) % (canvas.height - 100);
+                    const astSize = 5 + (i % 15);
+                    const rotation = (Date.now() / 1000 + i) * 0.5;
+
+                    ctx.save();
+                    ctx.translate(astX, astY);
+                    ctx.rotate(rotation);
+                    ctx.fillStyle = '#8B7355';
+                    ctx.beginPath();
+                    // Irregular asteroid shape
+                    for (let j = 0; j < 8; j++) {
+                        const angle = (j / 8) * Math.PI * 2;
+                        const radius = astSize * (0.7 + Math.random() * 0.6);
+                        const x = Math.cos(angle) * radius;
+                        const y = Math.sin(angle) * radius;
+                        if (j === 0) ctx.moveTo(x, y);
+                        else ctx.lineTo(x, y);
+                    }
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.strokeStyle = '#654321';
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                    ctx.restore();
+                }
+            }
+
+            // Spooky background trees for forest/jungle themes
+            if (["forest", "jungle"].includes(config.theme)) {
+                // Dark spooky trees in far background
+                ctx.fillStyle = 'rgba(20,50,20,0.4)';
+                for (let i = 0; i < 50; i++) {
+                    const x = (i * 200 + cameraX * 0.1) % (finishLine + 1500);
+                    const y = 300 + (i * 60) % 300;
+                    // Twisted trunk
+                    ctx.save();
+                    ctx.translate(x, y);
+                    ctx.rotate((i % 3 - 1) * 0.1);
+                    ctx.fillRect(-8, 0, 16, 120);
+                    // Spooky branches
+                    ctx.fillRect(-30, 20, 20, 5);
+                    ctx.fillRect(10, 40, 25, 5);
+                    ctx.fillRect(-25, 60, 15, 5);
+                    // Dead tree top
+                    ctx.beginPath();
+                    ctx.moveTo(0, -20);
+                    ctx.lineTo(-30, 30);
+                    ctx.lineTo(30, 30);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.restore();
+                }
+
+                // Mid-ground trees
+                ctx.fillStyle = 'rgba(34,80,34,0.5)';
+                for (let i = 0; i < 40; i++) {
+                    const x = (i * 250 + cameraX * 0.15) % (finishLine + 1200);
+                    const y = 350 + (i * 40) % 250;
+                    ctx.fillRect(x - 12, y, 24, 130);
+                    // Creepy branches
+                    for (let j = 0; j < 4; j++) {
+                        const branchY = y + j * 30;
+                        ctx.fillRect(x - 35, branchY, 25, 6);
+                        ctx.fillRect(x + 10, branchY + 10, 30, 6);
+                    }
+                    // Tree crown
+                    ctx.beginPath();
+                    ctx.moveTo(x, y - 40);
+                    ctx.lineTo(x - 45, y + 30);
+                    ctx.lineTo(x + 45, y + 30);
+                    ctx.closePath();
+                    ctx.fill();
+                }
+
+                // Close foreground trees
+                ctx.fillStyle = 'rgba(34,100,34,0.6)';
+                for (let i = 0; i < 30; i++) {
+                    const x = (i * 300 + cameraX * 0.2) % (finishLine + 1000);
+                    const y = 400 + (i * 50) % 200;
+                    ctx.fillRect(x - 15, y, 30, 150);
+                    ctx.beginPath();
+                    ctx.moveTo(x, y - 60);
+                    ctx.lineTo(x - 50, y + 20);
+                    ctx.lineTo(x + 50, y + 20);
+                    ctx.closePath();
+                    ctx.fill();
+                }
+
+                // Fog/mist effect
+                ctx.fillStyle = 'rgba(200,200,200,0.1)';
+                for (let i = 0; i < 10; i++) {
+                    const x = (i * 400 + cameraX * 0.05 + Date.now() / 200) % (finishLine + 1500);
+                    const y = 400 + Math.sin(Date.now() / 1000 + i) * 100;
+                    ctx.beginPath();
+                    ctx.ellipse(x, y, 150, 50, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+
+            // Background mountains for outdoor themes
+            if (["desert", "snow", "volcano"].includes(config.theme)) {
+                ctx.fillStyle = 'rgba(0,0,0,0.2)';
+                for (let i = 0; i < 5; i++) {
+                    const x = (i * 800 + cameraX * 0.1) % (finishLine + 1500);
+                    ctx.beginPath();
+                    ctx.moveTo(x - 300, 600);
+                    ctx.lineTo(x, 200);
+                    ctx.lineTo(x + 300, 600);
+                    ctx.closePath();
+                    ctx.fill();
+                }
+            }
+
+            // Add texture based on theme
+            if (config.theme === "space") {
+                // Stars with twinkling
+                for (let i = 0; i < 150; i++) {
+                    const x = (i * 173 + cameraX * 0.5) % (finishLine + 1000);
+                    const y = (i * 241) % canvas.height;
+                    const twinkle = Math.sin(Date.now() / 500 + i) * 0.5 + 0.5;
+                    ctx.fillStyle = `rgba(255,255,255,${twinkle})`;
+                    ctx.fillRect(x, y, 3, 3);
+                }
+            } else if (config.theme === "snow") {
+                // Snowflakes falling
+                ctx.fillStyle = 'rgba(255,255,255,0.6)';
+                for (let i = 0; i < 100; i++) {
+                    const x = (i * 197 + Date.now() / 50) % (finishLine + 1000);
+                    const y = (i * 223 + Date.now() / 30) % canvas.height;
+                    ctx.beginPath();
+                    ctx.arc(x, y, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            } else if (config.theme === "volcano") {
+                // Falling ash/embers
+                for (let i = 0; i < 80; i++) {
+                    const x = (i * 211 + Date.now() / 40) % (finishLine + 1000);
+                    const y = (i * 193 + Date.now() / 20) % canvas.height;
+                    ctx.fillStyle = `rgba(255,${100 + i % 100},0,${0.3 + (i % 5) * 0.1})`;
+                    ctx.beginPath();
+                    ctx.arc(x, y, 2, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            } else if (config.theme === "candy") {
+                // Floating candy pieces
+                for (let i = 0; i < 50; i++) {
+                    const x = (i * 227 + Date.now() / 60) % (finishLine + 1000);
+                    const y = (i * 251 + Math.sin(Date.now() / 1000 + i) * 50) % canvas.height;
+                    ctx.fillStyle = `hsl(${i * 50}, 100%, 70%)`;
+                    ctx.fillRect(x, y, 8, 8);
+                }
+            }
+
+            // Clouds for outdoor themes
+            if (["forest", "desert", "jungle"].includes(config.theme)) {
+                ctx.fillStyle = 'rgba(255,255,255,0.3)';
+                for (let i = 0; i < 8; i++) {
+                    const x = (i * 400 + cameraX * 0.3 + Date.now() / 100) % (finishLine + 1000);
+                    const y = 100 + (i * 80) % 300;
+                    ctx.beginPath();
+                    ctx.ellipse(x, y, 80, 40, 0, 0, Math.PI * 2);
+                    ctx.ellipse(x + 50, y, 60, 35, 0, 0, Math.PI * 2);
+                    ctx.ellipse(x - 50, y, 60, 35, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+        }
+
+        function drawMountain() {
+            const config = levels[currentLevel];
+            ctx.fillStyle = config.groundColor;
+            ctx.beginPath();
+            ctx.moveTo(mountainPoints[0].x, mountainPoints[0].y);
+            for (let point of mountainPoints) {
+                ctx.lineTo(point.x, point.y);
+            }
+            ctx.closePath();
+            ctx.fill();
+
+            // Add ground texture - rocks, grass, details, GOLD VEINS, DIAMONDS, MOLES!
+            ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+            ctx.lineWidth = 2;
+            for (let i = 1; i < mountainPoints.length - 2; i++) {
+                const p = mountainPoints[i];
+
+                // Grass/detail lines
+                for (let j = 0; j < 5; j++) {
+                    ctx.beginPath();
+                    ctx.moveTo(p.x + j * 15, p.y + j * 3);
+                    ctx.lineTo(p.x + j * 15, p.y + j * 3 + 8);
+                    ctx.stroke();
+                }
+
+                // Rocks
+                if (i % 5 === 0) {
+                    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+                    ctx.beginPath();
+                    ctx.arc(p.x + 20, p.y + 15, 8, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.arc(p.x + 35, p.y + 18, 6, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                // GOLD VEINS!
+                if (i % 7 === 0) {
+                    ctx.strokeStyle = '#FFD700';
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.moveTo(p.x, p.y + 20);
+                    ctx.lineTo(p.x + 30, p.y + 35);
+                    ctx.lineTo(p.x + 50, p.y + 30);
+                    ctx.lineTo(p.x + 70, p.y + 45);
+                    ctx.stroke();
+                    // Gold nuggets
+                    ctx.fillStyle = '#FFD700';
+                    ctx.beginPath();
+                    ctx.arc(p.x + 30, p.y + 35, 4, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.arc(p.x + 50, p.y + 30, 5, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                // DIAMONDS!
+                if (i % 9 === 0) {
+                    const diamondX = p.x + 40;
+                    const diamondY = p.y + 25;
+                    const diamondSize = 8;
+
+                    ctx.fillStyle = '#00FFFF';
+                    ctx.beginPath();
+                    ctx.moveTo(diamondX, diamondY - diamondSize);
+                    ctx.lineTo(diamondX - diamondSize * 0.7, diamondY);
+                    ctx.lineTo(diamondX, diamondY + diamondSize);
+                    ctx.lineTo(diamondX + diamondSize * 0.7, diamondY);
+                    ctx.closePath();
+                    ctx.fill();
+
+                    // Diamond sparkle
+                    ctx.fillStyle = '#FFF';
+                    ctx.fillRect(diamondX - 2, diamondY - 2, 4, 4);
+
+                    // Another diamond
+                    const d2X = p.x + 60;
+                    const d2Y = p.y + 40;
+                    ctx.fillStyle = '#FF00FF';
+                    ctx.beginPath();
+                    ctx.moveTo(d2X, d2Y - 6);
+                    ctx.lineTo(d2X - 5, d2Y);
+                    ctx.lineTo(d2X, d2Y + 6);
+                    ctx.lineTo(d2X + 5, d2Y);
+                    ctx.closePath();
+                    ctx.fill();
+                }
+
+                // MOLES! (cute little underground animals)
+                if (i % 11 === 0) {
+                    const moleX = p.x + 25;
+                    const moleY = p.y + 30;
+
+                    // Mole hill
+                    ctx.fillStyle = 'rgba(101,67,33,0.8)';
+                    ctx.beginPath();
+                    ctx.ellipse(moleX, moleY, 15, 8, 0, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // Mole peeking out
+                    ctx.fillStyle = '#654321';
+                    ctx.beginPath();
+                    ctx.arc(moleX, moleY - 8, 10, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // Mole nose
+                    ctx.fillStyle = '#FFB6C1';
+                    ctx.beginPath();
+                    ctx.arc(moleX, moleY - 5, 3, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // Mole eyes
+                    ctx.fillStyle = '#000';
+                    ctx.fillRect(moleX - 5, moleY - 10, 2, 2);
+                    ctx.fillRect(moleX + 3, moleY - 10, 2, 2);
+
+                    // Mole whiskers
+                    ctx.strokeStyle = '#000';
+                    ctx.lineWidth = 1;
+                    for (let w = -1; w <= 1; w += 2) {
+                        ctx.beginPath();
+                        ctx.moveTo(moleX + w * 10, moleY - 5);
+                        ctx.lineTo(moleX + w * 18, moleY - 4);
+                        ctx.stroke();
+                        ctx.beginPath();
+                        ctx.moveTo(moleX + w * 10, moleY - 3);
+                        ctx.lineTo(moleX + w * 18, moleY - 2);
+                        ctx.stroke();
+                    }
+
+                    // Mole paws
+                    ctx.fillStyle = '#8B4513';
+                    ctx.fillRect(moleX - 12, moleY, 5, 3);
+                    ctx.fillRect(moleX + 7, moleY, 5, 3);
+                }
+
+                // MORE GOLD VEINS (different style)
+                if (i % 6 === 0) {
+                    ctx.strokeStyle = 'rgba(255,215,0,0.6)';
+                    ctx.lineWidth = 4;
+                    ctx.beginPath();
+                    ctx.moveTo(p.x + 10, p.y + 50);
+                    ctx.quadraticCurveTo(p.x + 40, p.y + 60, p.x + 80, p.y + 55);
+                    ctx.stroke();
+                }
+
+                // Silver/Platinum veins
+                if (i % 8 === 0) {
+                    ctx.strokeStyle = 'rgba(192,192,192,0.7)';
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.moveTo(p.x + 5, p.y + 40);
+                    ctx.lineTo(p.x + 25, p.y + 50);
+                    ctx.lineTo(p.x + 45, p.y + 45);
+                    ctx.stroke();
+                }
+            }
+
+            ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(mountainPoints[0].x, mountainPoints[0].y);
+            for (let i = 1; i < mountainPoints.length - 2; i++) {
+                ctx.lineTo(mountainPoints[i].x, mountainPoints[i].y);
+            }
+            ctx.stroke();
+        }
+
+        function drawMines() {
+            for (const mine of mines) {
+                const pulse = Math.sin(Date.now() / 300 + mine.pulse) * 0.3 + 0.7;
+
+                // Mine body
+                ctx.fillStyle = '#333';
+                ctx.beginPath();
+                ctx.arc(mine.x, mine.y, mine.radius, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Spikes
+                ctx.fillStyle = '#666';
+                for (let i = 0; i < 8; i++) {
+                    const angle = (Math.PI * 2 * i) / 8;
+                    ctx.beginPath();
+                    ctx.moveTo(mine.x, mine.y);
+                    ctx.lineTo(
+                        mine.x + Math.cos(angle) * mine.radius * 1.5,
+                        mine.y + Math.sin(angle) * mine.radius * 1.5
+                    );
+                    ctx.lineWidth = 4;
+                    ctx.strokeStyle = '#666';
+                    ctx.stroke();
+                }
+
+                // Pulsing red warning light
+                ctx.fillStyle = `rgba(255, 0, 0, ${pulse})`;
+                ctx.beginPath();
+                ctx.arc(mine.x, mine.y, mine.radius * 0.5, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Warning glow
+                ctx.fillStyle = `rgba(255, 0, 0, ${pulse * 0.3})`;
+                ctx.beginPath();
+                ctx.arc(mine.x, mine.y, mine.radius * 1.5, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        function drawMonster(obs) {
+            const type = obs.type;
+            const scale = 1.7; // Scale up for HD
+            ctx.save();
+            ctx.translate(obs.x + obs.width / 2, obs.y + obs.height / 2);
+            ctx.scale(scale, scale);
+
+            switch(type) {
+                case "slime":
+                    ctx.fillStyle = '#4CAF50';
+                    ctx.beginPath();
+                    ctx.ellipse(0, 5, 18, 15, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = '#000';
+                    ctx.fillRect(-8, -5, 6, 8);
+                    ctx.fillRect(2, -5, 6, 8);
+                    break;
+                case "cactus":
+                    ctx.fillStyle = '#2E7D32';
+                    ctx.fillRect(-8, -15, 16, 30);
+                    ctx.fillRect(-15, -5, 10, 10);
+                    ctx.fillRect(5, -5, 10, 10);
+                    break;
+                case "yeti":
+                    ctx.fillStyle = '#E0E0E0';
+                    ctx.fillRect(-10, -10, 20, 25);
+                    ctx.fillStyle = '#000';
+                    ctx.fillRect(-8, -8, 4, 4);
+                    ctx.fillRect(4, -8, 4, 4);
+                    ctx.fillStyle = '#555';
+                    ctx.fillRect(-3, 0, 6, 3);
+                    break;
+                case "lava":
+                    ctx.fillStyle = '#FF4500';
+                    ctx.beginPath();
+                    ctx.moveTo(-15, 15);
+                    ctx.lineTo(-10, -15);
+                    ctx.lineTo(-5, 15);
+                    ctx.lineTo(0, -15);
+                    ctx.lineTo(5, 15);
+                    ctx.lineTo(10, -15);
+                    ctx.lineTo(15, 15);
+                    ctx.closePath();
+                    ctx.fill();
+                    break;
+                case "plant":
+                    ctx.fillStyle = '#1B5E20';
+                    ctx.fillRect(-5, -5, 10, 20);
+                    ctx.fillStyle = '#FF0000';
+                    for (let i = 0; i < 5; i++) {
+                        ctx.beginPath();
+                        ctx.arc(0, -10, 15 - i * 3, 0, Math.PI * 2);
+                        ctx.stroke();
+                    }
+                    break;
+                case "alien":
+                    ctx.fillStyle = '#00FF00';
+                    ctx.beginPath();
+                    ctx.ellipse(0, -5, 12, 15, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = '#000';
+                    ctx.beginPath();
+                    ctx.arc(-5, -8, 4, 0, Math.PI * 2);
+                    ctx.arc(5, -8, 4, 0, Math.PI * 2);
+                    ctx.fill();
+                    break;
+                case "candy":
+                    ctx.fillStyle = '#FF69B4';
+                    ctx.beginPath();
+                    ctx.arc(0, 0, 15, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = '#FFF';
+                    ctx.beginPath();
+                    ctx.arc(-5, -5, 3, 0, Math.PI * 2);
+                    ctx.arc(5, 5, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                    break;
+                case "robot":
+                    ctx.fillStyle = '#607D8B';
+                    ctx.fillRect(-10, -12, 20, 24);
+                    ctx.fillStyle = '#00FFFF';
+                    ctx.fillRect(-7, -8, 5, 5);
+                    ctx.fillRect(2, -8, 5, 5);
+                    ctx.fillRect(-5, 2, 10, 3);
+                    break;
+                case "demon":
+                    ctx.fillStyle = '#8B0000';
+                    ctx.fillRect(-10, -10, 20, 20);
+                    ctx.fillStyle = '#FF0000';
+                    ctx.beginPath();
+                    ctx.moveTo(-12, -12);
+                    ctx.lineTo(-8, -18);
+                    ctx.lineTo(-4, -12);
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.moveTo(12, -12);
+                    ctx.lineTo(8, -18);
+                    ctx.lineTo(4, -12);
+                    ctx.fill();
+                    break;
+                case "crystal":
+                    ctx.fillStyle = '#9C27B0';
+                    ctx.beginPath();
+                    ctx.moveTo(0, -15);
+                    ctx.lineTo(-10, 5);
+                    ctx.lineTo(-3, 15);
+                    ctx.lineTo(3, 15);
+                    ctx.lineTo(10, 5);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.strokeStyle = '#FFF';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                    break;
+            }
+
+            ctx.restore();
+        }
+
+        function drawSaucer(saucer) {
+            ctx.save();
+            ctx.translate(saucer.x, saucer.y);
+
+            // UFO shadow
+            ctx.fillStyle = 'rgba(0,0,0,0.2)';
+            ctx.beginPath();
+            ctx.ellipse(0, 50, 45, 10, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // UFO body (scaled for HD) with gradient
+            const bodyGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, 40);
+            bodyGrad.addColorStop(0, '#E0E0E0');
+            bodyGrad.addColorStop(1, '#808080');
+            ctx.fillStyle = bodyGrad;
+            ctx.beginPath();
+            ctx.ellipse(0, 0, 40, 16, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Metallic edge
+            ctx.strokeStyle = '#606060';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // UFO dome with glow
+            const domeGrad = ctx.createRadialGradient(0, -12, 0, 0, -12, 20);
+            domeGrad.addColorStop(0, '#00FFFF');
+            domeGrad.addColorStop(1, '#0088AA');
+            ctx.fillStyle = domeGrad;
+            ctx.beginPath();
+            ctx.ellipse(0, -12, 20, 14, 0, 0, Math.PI, true);
+            ctx.fill();
+
+            // Dome highlight
+            ctx.fillStyle = 'rgba(255,255,255,0.4)';
+            ctx.beginPath();
+            ctx.ellipse(-5, -16, 8, 6, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // UFO lights with glow effect
+            const lightColors = ['#FF0000', '#00FF00', '#0000FF'];
+            const pulse = Math.sin(Date.now() / 200) * 0.3 + 0.7;
+            for (let i = 0; i < 3; i++) {
+                // Glow
+                ctx.fillStyle = lightColors[i] + '40';
+                ctx.beginPath();
+                ctx.arc(-24 + i * 24, 8, 10, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Light
+                ctx.fillStyle = lightColors[i];
+                ctx.beginPath();
+                ctx.arc(-24 + i * 24, 8, 5 * pulse, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Antenna with light
+            ctx.strokeStyle = '#808080';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(0, -26);
+            ctx.lineTo(0, -32);
+            ctx.stroke();
+
+            ctx.fillStyle = '#FF0000';
+            ctx.beginPath();
+            ctx.arc(0, -34, 3, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.restore();
+        }
+
+        function drawJulian(julian) {
+            ctx.save();
+            ctx.translate(julian.x + julian.width / 2, julian.y + julian.height / 2);
+
+            // Julian's body (big menacing figure)
+            ctx.fillStyle = '#8B0000';
+            ctx.fillRect(-50, -60, 100, 120);
+
+            // Armor plates
+            ctx.fillStyle = '#4d0000';
+            ctx.fillRect(-45, -55, 90, 30);
+            ctx.fillRect(-45, -15, 90, 30);
+            ctx.fillRect(-45, 25, 90, 30);
+
+            // Evil face
+            ctx.fillStyle = '#FFD700';
+            ctx.beginPath();
+            ctx.arc(-20, -40, 8, 0, Math.PI * 2);
+            ctx.arc(20, -40, 8, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Red glowing eyes
+            ctx.fillStyle = '#FF0000';
+            ctx.beginPath();
+            ctx.arc(-20, -40, 4, 0, Math.PI * 2);
+            ctx.arc(20, -40, 4, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Evil grin
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(0, -20, 15, 0.2, Math.PI - 0.2);
+            ctx.stroke();
+
+            // Sharp teeth
+            ctx.fillStyle = '#FFF';
+            for (let i = -12; i <= 12; i += 6) {
+                ctx.beginPath();
+                ctx.moveTo(i, -10);
+                ctx.lineTo(i - 3, -5);
+                ctx.lineTo(i + 3, -5);
+                ctx.closePath();
+                ctx.fill();
+            }
+
+            // Horns
+            ctx.fillStyle = '#4d0000';
+            ctx.beginPath();
+            ctx.moveTo(-40, -60);
+            ctx.lineTo(-50, -80);
+            ctx.lineTo(-35, -65);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.moveTo(40, -60);
+            ctx.lineTo(50, -80);
+            ctx.lineTo(35, -65);
+            ctx.closePath();
+            ctx.fill();
+
+            // Boss name
+            ctx.fillStyle = '#FFD700';
+            ctx.font = 'bold 20px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('JULIAN', 0, -90);
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 2;
+            ctx.strokeText('JULIAN', 0, -90);
+
+            ctx.restore();
+        }
+
+        function updateJulians() {
+            if (!gameStarted) return;
+
+            for (let julian of julians) {
+                // Jumping behavior
+                julian.jumpTimer++;
+                if (julian.jumpTimer >= 120 && julian.vy === 0) {
+                    julian.vy = -15; // Jump
+                    julian.jumpTimer = 0;
+                }
+
+                // Apply gravity
+                julian.vy += 0.5;
+                julian.y += julian.vy;
+
+                // Ground collision
+                const groundY = getTerrainHeight(julian.x + julian.width / 2) - julian.height;
+                if (julian.y >= groundY) {
+                    julian.y = groundY;
+                    julian.vy = 0;
+                }
+
+                // Fire spitting
+                julian.fireTimer++;
+                if (julian.fireTimer >= 90) { // Spit fire every 1.5 seconds
+                    const fireballX = julian.x;
+                    const fireballY = julian.y + 40;
+
+                    // Spit 3 fireballs in a spread
+                    for (let i = -1; i <= 1; i++) {
+                        fireballs.push({
+                            x: fireballX,
+                            y: fireballY,
+                            vx: -8 + i * 2,
+                            vy: -5 + i * 1.5,
+                            size: 15,
+                            life: 1.0
+                        });
+                    }
+                    julian.fireTimer = 0;
+                }
+            }
+        }
+
+        function updateFireballs() {
+            for (let i = fireballs.length - 1; i >= 0; i--) {
+                const fb = fireballs[i];
+                fb.vy += 0.3; // Gravity
+                fb.x += fb.vx;
+                fb.y += fb.vy;
+                fb.life -= 0.005;
+
+                // Remove if off screen or expired
+                if (fb.y > canvas.height || fb.x < -100 || fb.life <= 0) {
+                    fireballs.splice(i, 1);
+                }
+            }
+        }
+
+        function drawFireballs() {
+            for (const fb of fireballs) {
+                ctx.save();
+                ctx.globalAlpha = fb.life;
+
+                // Fireball glow
+                const gradient = ctx.createRadialGradient(fb.x, fb.y, 0, fb.x, fb.y, fb.size * 2);
+                gradient.addColorStop(0, '#FFFF00');
+                gradient.addColorStop(0.3, '#FF6600');
+                gradient.addColorStop(1, 'rgba(255, 0, 0, 0)');
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(fb.x, fb.y, fb.size * 2, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Core
+                ctx.fillStyle = '#FFFF00';
+                ctx.beginPath();
+                ctx.arc(fb.x, fb.y, fb.size, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Flame details
+                ctx.fillStyle = '#FF4500';
+                ctx.beginPath();
+                ctx.arc(fb.x - 3, fb.y, fb.size * 0.7, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.restore();
+            }
+        }
+
+        function updateSaucers() {
+            for (let saucer of saucers) {
+                if (saucer.hunting && gameStarted && !gameOver) {
+                    // Slowly hunt Rob
+                    const dx = rob.x - saucer.x;
+                    const dy = rob.y - 150 - saucer.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+
+                    if (dist > 0) {
+                        const speed = 1.5;
+                        saucer.vx += (dx / dist) * speed * 0.1;
+                        saucer.vy += (dy / dist) * speed * 0.1;
+
+                        // Cap speed
+                        const currentSpeed = Math.sqrt(saucer.vx * saucer.vx + saucer.vy * saucer.vy);
+                        if (currentSpeed > 3) {
+                            saucer.vx = (saucer.vx / currentSpeed) * 3;
+                            saucer.vy = (saucer.vy / currentSpeed) * 3;
+                        }
+                    }
+
+                    // Try to activate beam if close
+                    if (dist < 200 && !beamActive) {
+                        saucer.beamTimer++;
+                        if (saucer.beamTimer > 180) { // 3 seconds
+                            beamActive = true;
+                            beamTarget = saucer;
+                            beamProgress = 0;
+                            saucer.beamTimer = 0;
+                        }
+                    }
+                }
+
+                saucer.x += saucer.vx;
+                saucer.y += saucer.vy;
+
+                // Friction
+                saucer.vx *= 0.98;
+                saucer.vy *= 0.98;
+
+                // Keep in bounds
+                if (saucer.y < 100) saucer.y = 100;
+                if (saucer.y > 500) saucer.y = 500;
+            }
+        }
+
+        function drawBeam() {
+            if (!beamActive || !beamTarget) return;
+
+            const saucer = beamTarget;
+
+            ctx.save();
+            ctx.globalAlpha = 0.6;
+
+            // Beam cone
+            const gradient = ctx.createLinearGradient(saucer.x, saucer.y + 20, saucer.x, saucer.y + 300);
+            gradient.addColorStop(0, 'rgba(0, 255, 255, 0.8)');
+            gradient.addColorStop(1, 'rgba(0, 255, 255, 0.1)');
+            ctx.fillStyle = gradient;
+
+            ctx.beginPath();
+            ctx.moveTo(saucer.x - 20, saucer.y + 20);
+            ctx.lineTo(saucer.x - 50 - beamProgress * 0.5, saucer.y + 300);
+            ctx.lineTo(saucer.x + 50 + beamProgress * 0.5, saucer.y + 300);
+            ctx.lineTo(saucer.x + 20, saucer.y + 20);
+            ctx.closePath();
+            ctx.fill();
+
+            // Beam particles
+            for (let i = 0; i < 20; i++) {
+                const t = (Date.now() / 50 + i) % 1;
+                const x = saucer.x + (Math.random() - 0.5) * 50;
+                const y = saucer.y + 20 + t * 280;
+                ctx.fillStyle = `rgba(0, 255, 255, ${1 - t})`;
+                ctx.fillRect(x, y, 3, 8);
+            }
+
+            ctx.restore();
+
+            // Check if Rob is still in beam
+            const beamCenterX = saucer.x;
+            const beamWidth = 100 + beamProgress;
+            const beamBottom = saucer.y + 300;
+            const inBeam = rob.x > beamCenterX - beamWidth / 2 &&
+                          rob.x < beamCenterX + beamWidth / 2 &&
+                          rob.y > saucer.y + 20 &&
+                          rob.y < beamBottom;
+
+            if (inBeam) {
+                // Slow down Rob in beam
+                rob.vx *= 0.85;
+                rob.vy *= 0.9;
+
+                // Pull slightly toward beam center
+                rob.x += (beamCenterX - rob.x) * 0.02;
+
+                // Increment progress
+                beamProgress += 1;
+
+                // After 3 seconds (180 frames), teleport back
+                if (beamProgress >= 180) {
+                    rob.x = Math.max(200, rob.x - 2000);
+                    rob.y = 150;
+                    rob.vx = 0;
+                    rob.vy = 0;
+                    beamActive = false;
+                    beamTarget = null;
+                    beamProgress = 0;
+
+                    const abductMessages = [
+                        "Holy sh*t! The UFO set you back 20 meters!",
+                        "F*ck! Abducted and dumped back!",
+                        "Damn aliens! They got you!",
+                        "UFO got your ass! Back 20 meters!"
+                    ];
+                    infoDisplay.textContent = abductMessages[Math.floor(Math.random() * abductMessages.length)];
+                }
+            } else {
+                // Escaped the beam!
+                beamActive = false;
+                beamTarget = null;
+                beamProgress = 0;
+            }
+        }
+
+        function createExplosion(x, y) {
+            for (let i = 0; i < 30; i++) {
+                const angle = (Math.PI * 2 * i) / 30;
+                const speed = Math.random() * 5 + 2;
+                explosionParticles.push({
+                    x: x,
+                    y: y,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    life: 1.0,
+                    size: Math.random() * 4 + 2,
+                    color: Math.random() > 0.5 ? '#FF4500' : '#FFD700'
+                });
+            }
+        }
+
+        function updateExplosion() {
+            for (let i = explosionParticles.length - 1; i >= 0; i--) {
+                const p = explosionParticles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vy += 0.2;
+                p.life -= 0.02;
+
+                if (p.life <= 0) {
+                    explosionParticles.splice(i, 1);
+                }
+            }
+        }
+
+        function drawExplosion() {
+            for (const p of explosionParticles) {
+                ctx.globalAlpha = p.life;
+                ctx.fillStyle = p.color;
+                ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+            }
+            ctx.globalAlpha = 1.0;
+        }
+
+        function updatePhysics() {
+            if ((gameOver && explosionParticles.length === 0 && !gameWon)) return;
+
+            if (gameStarted && !gameOver && !gameWon) {
+                // Arrow key controls
+                if (keysPressed.ArrowLeft) {
+                    rob.vx -= 0.5;
+                }
+                if (keysPressed.ArrowRight) {
+                    rob.vx += 0.5;
+                }
+                if (keysPressed.ArrowUp) {
+                    rob.vy -= 0.3;
+                }
+                if (keysPressed.ArrowDown) {
+                    rob.vy += 0.3;
+                }
+
+                rob.vy += rob.gravity;
+                rob.vx *= rob.friction;
+                rob.x += rob.vx;
+                rob.y += rob.vy;
+
+                rob.rotation += rob.vx * 0.05;
+
+                // Check if on ground
+                rob.onGround = false;
+
+                // Collision with terrain
+                const terrainHeight = getTerrainHeight(rob.x);
+                if (rob.y + rob.radius > terrainHeight) {
+                    rob.y = terrainHeight - rob.radius;
+                    rob.vy *= -rob.bounce;
+
+                    if (Math.abs(rob.vy) < 0.5) {
+                        rob.vy = 0;
+                    }
+
+                    rob.onGround = true;
+                    rob.jumpsUsed = 0; // Reset jumps when landing
+
+                    const slope = getSlope(rob.x);
+                    rob.vx += slope * 0.5;
+                }
+
+                // Collision with monsters - bounce instead of explode
+                for (let obs of obstacles) {
+                    if (rob.x + rob.radius > obs.x &&
+                        rob.x - rob.radius < obs.x + obs.width &&
+                        rob.y + rob.radius > obs.y &&
+                        rob.y - rob.radius < obs.y + obs.height) {
+
+                        // Bounce away from monster
+                        const monsterCenterX = obs.x + obs.width / 2;
+                        const monsterCenterY = obs.y + obs.height / 2;
+                        const dx = rob.x - monsterCenterX;
+                        const dy = rob.y - monsterCenterY;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+
+                        if (dist > 0) {
+                            const bounceForce = 8;
+                            rob.vx = (dx / dist) * bounceForce;
+                            rob.vy = (dy / dist) * bounceForce - 2;
+                        }
+                    }
+                }
+
+                // Collision with saucers - bounce instead of explode
+                for (let saucer of saucers) {
+                    if (rob.x + rob.radius > saucer.x - 40 &&
+                        rob.x - rob.radius < saucer.x + 40 &&
+                        rob.y + rob.radius > saucer.y - 20 &&
+                        rob.y - rob.radius < saucer.y + 20) {
+
+                        // Bounce away from saucer
+                        const dx = rob.x - saucer.x;
+                        const dy = rob.y - saucer.y;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+
+                        if (dist > 0) {
+                            const bounceForce = 10;
+                            rob.vx = (dx / dist) * bounceForce;
+                            rob.vy = (dy / dist) * bounceForce - 3;
+                        }
+                    }
+                }
+
+                // Collision with Julian's fireballs - INSTANT DEATH!
+                for (let i = fireballs.length - 1; i >= 0; i--) {
+                    const fb = fireballs[i];
+                    const dx = rob.x - fb.x;
+                    const dy = rob.y - fb.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+
+                    if (dist < rob.radius + fb.size) {
+                        // EXPLODE!
+                        createExplosion(rob.x, rob.y);
+                        createExplosion(fb.x, fb.y);
+
+                        gameOver = true;
+                        const fireMessages = [
+                            "Julian's fire roasted your ass! Game over!",
+                            "Holy sh*t! Julian's fireball f*cked you up!",
+                            "Damn! Julian burned you to a crisp!",
+                            "F*ck! Julian's fire killed you! Try again!"
+                        ];
+                        infoDisplay.textContent = fireMessages[Math.floor(Math.random() * fireMessages.length)];
+                        fireballs.splice(i, 1);
+                        return;
+                    }
+                }
+
+                // Collision with Julians - INSTANT DEATH!
+                for (let julian of julians) {
+                    const dx = rob.x - (julian.x + julian.width / 2);
+                    const dy = rob.y - (julian.y + julian.height / 2);
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+
+                    if (dist < rob.radius + 50) { // Julian's collision radius
+                        // EXPLODE!
+                        createExplosion(rob.x, rob.y);
+
+                        gameOver = true;
+                        const julianMessages = [
+                            "Julian crushed you! Boss fight failed!",
+                            "Holy sh*t! Julian destroyed your ass!",
+                            "Damn! You got too close to Julian!",
+                            "F*ck! Julian killed you! Dodge better!"
+                        ];
+                        infoDisplay.textContent = julianMessages[Math.floor(Math.random() * julianMessages.length)];
+                        return;
+                    }
+                }
+
+                // Collision with mines - EXPLODE AND RESTART!
+                for (const mine of mines) {
+                    const dx = rob.x - mine.x;
+                    const dy = rob.y - mine.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+
+                    if (dist < rob.radius + mine.radius) {
+                        // BIG EXPLOSION
+                        createExplosion(rob.x, rob.y);
+                        createExplosion(mine.x, mine.y);
+
+                        gameOver = true;
+                        const mineMessages = [
+                            "BOOM! You hit a f*cking mine! Game over!",
+                            "Holy sh*t! Mine explosion! You're dead!",
+                            "Damn! That mine blew your ass up!",
+                            "F*ck! Mine detonated! Try again!"
+                        ];
+                        infoDisplay.textContent = mineMessages[Math.floor(Math.random() * mineMessages.length)];
+                        return;
+                    }
+                }
+
+                // Checkpoint collision detection
+                for (let i = 0; i < checkpoints.length; i++) {
+                    const cp = checkpoints[i];
+                    if (!cp.activated &&
+                        rob.x + rob.radius > cp.x &&
+                        rob.x - rob.radius < cp.x + cp.width &&
+                        rob.y + rob.radius > cp.y &&
+                        rob.y - rob.radius < cp.y + cp.height) {
+
+                        cp.activated = true;
+                        lastCheckpoint = i;
+
+                        const checkpointMessages = [
+                            `Checkpoint ${i + 1} reached! Keep going!`,
+                            `F*ck yeah! Checkpoint ${i + 1} saved!`,
+                            `Holy sh*t! Checkpoint ${i + 1} activated!`,
+                            `Damn! Checkpoint ${i + 1} is yours!`
+                        ];
+                        infoDisplay.textContent = checkpointMessages[Math.floor(Math.random() * checkpointMessages.length)];
+                    }
+                }
+
+                distance = Math.max(distance, Math.floor((rob.x - 200) / 10));
+                scoreDisplay.textContent = `Distance: ${distance}m | Goal: ${Math.floor(finishLine / 10)}m`;
+
+                // Check if reached finish line
+                if (rob.x >= finishLine && !gameWon) {
+                    gameWon = true;
+                    gameOver = true;
+                    createConfetti();
+                    autoAdvanceTimer = 0;
+
+                    if (currentLevel < levels.length - 1) {
+                        // Do nothing here, timer will handle the message
+                    } else {
+                        infoDisplay.textContent = `Holy f*cking sh*t! You beat ALL the levels! You're a goddamn legend!`;
+                        nextBtn.style.display = 'inline-block';
+                    }
+                }
+
+                // Check if Rob went off screen
+                if (rob.y > canvas.height + 50 && !gameWon) {
+                    gameOver = true;
+                    const failMessages = [
+                        "Oh sh*t! You fell off the damn mountain!",
+                        "F*ck! Gravity's a b*tch, try again!",
+                        "Damn it! You ate sh*t hard!",
+                        "Aw hell, you f*cked that up!",
+                        "Sh*t! Down you go!"
+                    ];
+                    infoDisplay.textContent = failMessages[Math.floor(Math.random() * failMessages.length)];
+                }
+            }
+
+            // Auto-advance timer for level completion
+            if (gameWon && currentLevel < levels.length - 1) {
+                autoAdvanceTimer++;
+
+                if (autoAdvanceTimer <= 300) {
+                    const secondsLeft = 5 - Math.floor(autoAdvanceTimer / 60);
+
+                    const winMessages = [
+                        `F*ck yeah! Level ${currentLevel + 1} crushed!`,
+                        `Holy sh*t, you did it! Level ${currentLevel + 1} complete!`,
+                        `Damn, that was sick! Level ${currentLevel + 1} done!`,
+                        `Hell yeah! Level ${currentLevel + 1} in the bag!`,
+                        `Shit yeah! Level ${currentLevel + 1} demolished!`
+                    ];
+
+                    const baseMessage = winMessages[Math.floor(autoAdvanceTimer / 60) % winMessages.length];
+
+                    if (secondsLeft > 0) {
+                        infoDisplay.textContent = `${baseMessage} Next in ${secondsLeft}...`;
+                    } else {
+                        infoDisplay.textContent = `${baseMessage} Loading next level...`;
+                    }
+                }
+
+                if (autoAdvanceTimer === 300) {
+                    loadLevel(currentLevel + 1);
+                }
+            }
+
+            updateSaucers();
+            updateJulians();
+            updateFireballs();
+            updateExplosion();
+        }
+
+        function getSlope(x) {
+            for (let i = 0; i < mountainPoints.length - 1; i++) {
+                const p1 = mountainPoints[i];
+                const p2 = mountainPoints[i + 1];
+
+                if (x >= p1.x && x <= p2.x) {
+                    return (p2.y - p1.y) / (p2.x - p1.x);
+                }
+            }
+            return 0;
+        }
+
+        function updateCamera() {
+            // Camera follows Rob horizontally, with smooth lerp
+            const targetCameraX = Math.max(0, rob.x - canvas.width / 3);
+            cameraX += (targetCameraX - cameraX) * 0.1;
+
+            // Camera follows Rob vertically too
+            const targetCameraY = Math.max(0, rob.y - canvas.height / 2);
+            cameraY += (targetCameraY - cameraY) * 0.08;
+
+            // Keep camera within bounds
+            const maxCameraX = Math.max(0, finishLine + 500 - canvas.width);
+            cameraX = Math.min(cameraX, maxCameraX);
+
+            // Don't go below ground level
+            cameraY = Math.max(0, Math.min(cameraY, 200));
+        }
+
+        function gameLoop() {
+            updateCamera();
+
+            ctx.save();
+            ctx.translate(-cameraX, -cameraY);
+
+            drawSky();
+            drawMountain();
+            drawFinishLine();
+            drawCheckpoints();
+
+            for (let obs of obstacles) {
+                drawMonster(obs);
+            }
+
+            drawMines();
+
+            for (let saucer of saucers) {
+                drawSaucer(saucer);
+            }
+
+            drawBeam();
+
+            for (let julian of julians) {
+                drawJulian(julian);
+            }
+            drawFireballs();
+
+            if (!gameOver || explosionParticles.length > 0) {
+                drawRob();
+            }
+
+            drawExplosion();
+
+            if (gameWon) {
+                updateConfetti();
+                drawConfetti();
+                updateFireworks();
+                drawFireworks();
+
+                fireworkTimer++;
+                if (fireworkTimer % 20 === 0) {
+                    createFirework(
+                        cameraX + Math.random() * canvas.width,
+                        Math.random() * canvas.height * 0.5
+                    );
+                }
+            }
+
+            ctx.restore();
+
+            updatePhysics();
+
+            // Draw charge meter (in screen space) - only for mouse
+            if (isMouseDown) {
+                const chargeTime = mouseDownTime;
+                const chargePower = Math.min(chargeTime / 30, 1);
+
+                ctx.fillStyle = 'rgba(0,0,0,0.7)';
+                ctx.fillRect(canvas.width / 2 - 150, canvas.height - 150, 300, 40);
+
+                ctx.fillStyle = `hsl(${120 * chargePower}, 100%, 50%)`;
+                ctx.fillRect(canvas.width / 2 - 145, canvas.height - 145, 290 * chargePower, 30);
+
+                ctx.strokeStyle = '#FFD700';
+                ctx.lineWidth = 3;
+                ctx.strokeRect(canvas.width / 2 - 150, canvas.height - 150, 300, 40);
+
+                ctx.fillStyle = '#FFF';
+                ctx.font = 'bold 20px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('JUMP POWER', canvas.width / 2, canvas.height - 120);
+                ctx.textAlign = 'left';
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function pushRob(power) {
+            if (!gameStarted) {
+                gameStarted = true;
+                const messages = [
+                    "Let's f*cking roll!",
+                    "Holy sh*t, here we go!",
+                    "Time to get baked and roll!",
+                    "Hell yeah, let's do this!",
+                    "F*ck yeah, rolling out!"
+                ];
+                infoDisplay.textContent = messages[Math.floor(Math.random() * messages.length)];
+            }
+
+            // Double jump support - allow 2 jumps total
+            if (rob.jumpsUsed < 2) {
+                // Add to velocity instead of replacing - allows for combo jumps
+                rob.vx += 4 + power * 4;
+                rob.vy += -3 - power * 5;
+
+                // Cap maximum velocity to prevent going too fast
+                rob.vx = Math.min(rob.vx, 25);
+                rob.vy = Math.max(rob.vy, -20);
+
+                rob.jumpsUsed++;
+            }
+        }
+
+        canvas.addEventListener('mousedown', (e) => {
+            if (gameOver) return;
+
+            const rect = canvas.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const clickY = e.clientY - rect.top;
+
+            const dx = clickX - rob.x;
+            const dy = clickY - rob.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance < rob.radius + 30) {
+                isMouseDown = true;
+                mouseDownTime = 0;
+            }
+        });
+
+        canvas.addEventListener('mouseup', (e) => {
+            if (isMouseDown) {
+                const chargePower = Math.min(mouseDownTime / 30, 1);
+                pushRob(chargePower);
+                isMouseDown = false;
+                mouseDownTime = 0;
+            }
+        });
+
+        document.addEventListener('keydown', (e) => {
+            // Spacebar for jump (no charge-up, instant jump) OR advance level when won
+            if (e.code === 'Space' && !isSpaceDown) {
+                e.preventDefault();
+
+                // If won, advance to next level
+                if (gameWon && currentLevel < levels.length - 1) {
+                    loadLevel(currentLevel + 1);
+                    isSpaceDown = true;
+                    return;
+                }
+
+                // Only allow jump if game is not over (and not won)
+                if (!gameOver && !gameWon) {
+                    if (!gameStarted) {
+                        gameStarted = true;
+                        const messages = [
+                            "Let's f*cking roll!",
+                            "Holy sh*t, here we go!",
+                            "Time to get baked and roll!",
+                            "Hell yeah, let's do this!",
+                            "F*ck yeah, rolling out!"
+                        ];
+                        infoDisplay.textContent = messages[Math.floor(Math.random() * messages.length)];
+                    }
+
+                    // Instant jump (double jump capable)
+                    if (rob.jumpsUsed < 2) {
+                        rob.vx += 4;
+                        rob.vy = -8;
+                        rob.jumpsUsed++;
+                    }
+                }
+                isSpaceDown = true;
+            }
+
+            // Arrow key controls
+            if (e.code === 'ArrowLeft') {
+                e.preventDefault();
+                keysPressed.ArrowLeft = true;
+            }
+            if (e.code === 'ArrowRight') {
+                e.preventDefault();
+                keysPressed.ArrowRight = true;
+            }
+            if (e.code === 'ArrowUp') {
+                e.preventDefault();
+                keysPressed.ArrowUp = true;
+            }
+            if (e.code === 'ArrowDown') {
+                e.preventDefault();
+                keysPressed.ArrowDown = true;
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                isSpaceDown = false;
+            }
+
+            // Arrow key controls
+            if (e.code === 'ArrowLeft') {
+                keysPressed.ArrowLeft = false;
+            }
+            if (e.code === 'ArrowRight') {
+                keysPressed.ArrowRight = false;
+            }
+            if (e.code === 'ArrowUp') {
+                keysPressed.ArrowUp = false;
+            }
+            if (e.code === 'ArrowDown') {
+                keysPressed.ArrowDown = false;
+            }
+        });
+
+        // Update charge time for mouse
+        setInterval(() => {
+            if (isMouseDown) mouseDownTime++;
+        }, 16);
+
+        function resetLevel() {
+            // Respawn at last checkpoint if available
+            if (lastCheckpoint >= 0 && checkpoints[lastCheckpoint]) {
+                rob.x = checkpoints[lastCheckpoint].x + 100;
+                rob.y = checkpoints[lastCheckpoint].y;
+            } else {
+                rob.x = 200;
+                rob.y = 150;
+            }
+            rob.vx = 0;
+            rob.vy = 0;
+            rob.rotation = 0;
+            rob.jumpsUsed = 0;
+            gameStarted = false;
+            gameOver = false;
+            gameWon = false;
+            distance = lastCheckpoint >= 0 ? Math.floor((rob.x - 200) / 10) : 0;
+            confetti = [];
+            fireworks = [];
+            fireworkTimer = 0;
+            explosionParticles = [];
+            isMouseDown = false;
+            mouseDownTime = 0;
+            isSpaceDown = false;
+            keysPressed = {
+                ArrowLeft: false,
+                ArrowRight: false,
+                ArrowUp: false,
+                ArrowDown: false
+            };
+            autoAdvanceTimer = 0;
+            beamActive = false;
+            beamTarget = null;
+            beamProgress = 0;
+            nextBtn.style.display = 'none';
+            scoreDisplay.textContent = `Distance: 0m | Goal: ${Math.floor(finishLine / 10)}m`;
+            const startMessages = [
+                "Use ARROW KEYS to move, SPACEBAR to jump! Click and hold Rob for power launch!",
+                "Arrow keys control movement, SPACE for double jump! Let's go!",
+                "Move with arrows, jump with SPACE! Click Rob to launch hard!",
+                "Arrow keys + SPACE = control! Watch out for Julians and mines!",
+                "ARROWS move, SPACE jumps, CLICK launches! F*ck yeah!"
+            ];
+            infoDisplay.textContent = startMessages[Math.floor(Math.random() * startMessages.length)];
+        }
+
+        function loadLevel(level) {
+            currentLevel = level;
+            levelDropdown.value = level;
+            generateMountain(level);
+            resetLevel();
+        }
+
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            resetLevel();
+        });
+
+        nextBtn.addEventListener('click', () => {
+            if (currentLevel < levels.length - 1) {
+                loadLevel(currentLevel + 1);
+            } else {
+                infoDisplay.textContent = 'Congratulations! You beat all levels!';
+            }
+        });
+
+        levelDropdown.addEventListener('change', (e) => {
+            loadLevel(parseInt(e.target.value));
+        });
+
+        // Initialize first level
+        loadLevel(0);
+        gameLoop();
+    </script>
+</body>
+</html>

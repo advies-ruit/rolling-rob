@@ -38,25 +38,53 @@
     touch-action: none; outline: none; -webkit-tap-highlight-color: transparent;
     -webkit-user-select: none; user-select: none; }
   #overlay { position: fixed; inset: 0; display: flex; flex-direction: column; gap: 14px;
-    align-items: center; justify-content: center; background: rgba(16, 20, 16, .92);
-    text-align: center; padding: 16px; box-sizing: border-box; }
+    align-items: center; justify-content: safe center; background: rgba(16, 20, 16, .92);
+    text-align: center; padding: 16px; box-sizing: border-box; overflow-y: auto; }
   #overlay h1 { margin: 0; color: var(--gold); font-size: 30px; letter-spacing: .04em; }
   #status { color: var(--dim); min-height: 1.4em; }
-  #bar { width: min(320px, 80vw); height: 6px; background: #2a2f2a; border-radius: 3px; overflow: hidden; }
+  #bar { width: 100%; height: 6px; background: #2a2f2a; border-radius: 3px; overflow: hidden; }
   #bar > div { height: 100%; width: 0; background: var(--gold); transition: width .2s; }
   #reload { font: inherit; font-size: 14px; font-weight: 600; color: #111; background: var(--gold);
     border: 0; border-radius: 6px; padding: 8px 20px; cursor: pointer; }
   #notice { color: #e0b050; font-size: 13px; max-width: 460px; }
   #notice:empty { display: none; }
-  #play { font: inherit; font-size: 18px; font-weight: 600; color: #111; background: var(--gold);
-    border: 0; border-radius: 6px; padding: 12px 32px; cursor: pointer; display: none; }
-  /* Resolution: the game draws at 1x-4x the panel's 480x272, same view. */
-  #res { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; align-items: center; }
-  #res span { color: var(--dim); font-size: 13px; margin-right: 2px; }
-  #res button { font: inherit; font-size: 13px; color: var(--fg); background: #2a2f2a;
-    border: 1px solid #444; border-radius: 4px; padding: 5px 9px; cursor: pointer; }
-  #res button[aria-pressed="true"] { border-color: var(--gold); color: var(--gold); }
-  #help { color: var(--dim); font-size: 13px; max-width: 460px; }
+  /* Three cards, one per game: the original (original.html, the copy kept
+   * with the maker's permission), this port, and Rolling Rob 3D (3d/, the
+   * original game in a three.js world). A picture of each at the same
+   * level, so it is clear which game a card starts. */
+  #cards { display: grid; grid-template-columns: repeat(3, minmax(0, 300px)); gap: 14px; }
+  /* one column on a narrow screen: this port first, it is the one most people want */
+  @media (max-width: 640px) { #cards { grid-template-columns: minmax(0, 340px); } #cardport { order: -1; } }
+  .card { display: flex; flex-direction: column; gap: 8px; align-items: stretch; padding: 10px;
+    background: #1a1f1a; border: 1px solid #2f352f; border-radius: 10px; color: var(--fg);
+    text-decoration: none; cursor: pointer; text-align: left; }
+  .card:hover, .card:focus-within, a.card:focus-visible { border-color: var(--gold); outline: none; }
+  .card img { display: block; width: 100%; height: auto; aspect-ratio: 480 / 272; object-fit: cover;
+    border-radius: 6px; background: #000; }
+  .card h2 { margin: 2px 0 0; font-size: 18px; color: var(--gold); }
+  .card p { margin: 0; font-size: 13px; color: var(--dim); flex: 1; }
+  #play, .card .btn { font: inherit; font-size: 16px; font-weight: 600; color: #111; background: var(--gold);
+    border: 0; border-radius: 6px; padding: 10px 16px; cursor: pointer; text-align: center; }
+  #play { display: none; }
+  #play, .card .btn { margin-top: auto; } /* the buttons at the bottom of their card */
+  /* this port is the main game: the other two get a quieter button */
+  .card .btn.alt { background: transparent; color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold); }
+  .card #status:empty { display: none; }
+  #help { color: var(--dim); font-size: 13px; max-width: 700px; }
+  #help summary { cursor: pointer; color: var(--fg); }
+  /* a phone held sideways: the cards with picture and button on one screen */
+  @media (max-height: 520px) {
+    #overlay { gap: 8px; padding: 8px; }
+    #overlay h1 { font-size: 22px; }
+    #orig { font-size: 12px; }
+    .card { padding: 8px; gap: 6px; }
+    .card img { max-height: 38vh; }
+    .card h2 { font-size: 16px; }
+    .card p { font-size: 12px; }
+    #play, .card .btn { padding: 7px 14px; font-size: 15px; }
+  }
+  @media (max-height: 430px) { .card p { display: none; } }
+  #help[open] summary { margin-bottom: 6px; }
   #orig { color: var(--dim); font-size: 13px; }
   #orig a { color: var(--gold); }
   #help kbd { border: 1px solid #555; border-radius: 3px; padding: 0 4px; font: 12px ui-monospace, monospace; }
@@ -88,24 +116,46 @@
 <div id="stage"><canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas></div>
 <div id="overlay">
   <h1>ROLLING ROB</h1>
-  <div id="orig">A port of the original
-    <a href="https://vader.nl/rolling-rob.html" target="_blank" rel="noopener">Rolling Rob on vader.nl</a></div>
-  <div id="bar"><div></div></div>
-  <div id="status">Loading…</div>
-  <button id="play">Play</button>
-  <button id="reload" class="hidden">Reload</button>
+  <div id="orig">Three ways to play Rolling Rob, the game from
+    <a href="https://vader.nl/rolling-rob.html" target="_blank" rel="noopener">vader.nl</a></div>
+  <div id="cards">
+    <a class="card" id="playorig" href="original.html">
+      <img src="card-original.webp" width="720" height="405" alt="The original Rolling Rob: level 4, Boulder Boulevard, as drawn by the original game">
+      <h2>The original</h2>
+      <p>Rolling Rob as vader.nl made it, unchanged: a copy kept here with the maker's permission, so it plays offline too.</p>
+      <span class="btn alt">Play the original</span>
+    </a>
+    <div class="card" id="cardport">
+      <img src="card-port.webp" width="720" height="408" alt="Rolling Rob: level 4, Boulder Boulevard, in the painted look">
+      <h2>Rolling Rob</h2>
+      <p>This port: painted landscapes, music and eleven levels, plus Tetris, 2048, Snake, Breakout, Mines and fractals.</p>
+      <div id="bar"><div></div></div>
+      <div id="status">Loading…</div>
+      <button id="play">Play</button>
+      <button id="reload" class="hidden">Reload</button>
+    </div>
+    <a class="card" id="play3d" href="3d/">
+      <img src="card-3d.webp" width="720" height="408" alt="Rolling Rob 3D: level 4, Boulder Boulevard, in a 3D world">
+      <h2>Rolling Rob 3D</h2>
+      <p>The original game itself in a 3D world, with shadows and effects, ghosts to race and a planned speedrun.</p>
+      <span class="btn alt">Play 3D</span>
+    </a>
+  </div>
   <div id="notice"></div>
-  <div id="res" role="group" aria-label="Resolution"><span>Resolution</span></div>
   <div id="offline"></div>
   <div id="version"></div>
   <div id="versions"></div>
-  <div id="help">
+  <details id="help"><summary>Keys and tips</summary>
+    <b>Rolling Rob</b><br>
     <kbd>Space</kbd> or JUMP: jump &nbsp;·&nbsp; hold the mouse or a finger on the game: charged launch &nbsp;·&nbsp; arrows: steer<br>
     <kbd>M</kbd> music on/off &nbsp;·&nbsp; <kbd>N</kbd> next track &nbsp;·&nbsp; <kbd>A</kbd> painted/original look &nbsp;·&nbsp; <kbd>F</kbd> frame counter<br>
-    <kbd>Enter</kbd> on the title screen opens the menu with every game: Rolling Rob, Tetris, 2048, 3D, Snake, Breakout and Minesweeper, and the fractal explorer &mdash; arrows and <kbd>Enter</kbd>, or the key on a tile.<br>
+    <kbd>Enter</kbd> on the title screen opens the menu with every game: Rolling Rob, Tetris, 2048, 3D world, Snake, Breakout and Mines, the fractal explorer and Info &mdash; arrows and <kbd>Enter</kbd>, or the key on a tile.<br>
     Each game has its own page: a small picture of the game that follows every change, Play or Continue, New game, and its settings (Rolling Rob: level, look, music with track, volume and order, frame counter). <kbd>Esc</kbd> in a game pauses on that page.<br>
-    Every resolution shows the same view; higher is sharper. Reload the page to change it.
-  </div>
+    Resolution: on Rolling Rob's page too. Every resolution shows the same view; higher is sharper.<br>
+    <kbd>Enter</kbd> here starts Rolling Rob.<br><br>
+    <b>Rolling Rob 3D</b><br>
+    The original's keys: arrows, <kbd>Space</kbd>, and the mouse held on Rob for a launch. <kbd>Esc</kbd> or <kbd>P</kbd> opens its menu with the levels, ghosts, the speedrun and the settings.
+  </details>
 </div>
 <div id="rotate">
   <svg viewBox="0 0 64 64" fill="none" stroke="#ffd700" stroke-width="3" stroke-linejoin="round">
@@ -241,6 +291,12 @@
   var failed = false;
   function showReload() { reloadBtn.classList.remove('hidden'); }
   reloadBtn.addEventListener('click', function () { reloadBtn.disabled = true; leave(function () { location.reload(); }); });
+  /* to the 3D version: save and stop this one first, like a version change */
+  document.getElementById('play3d').addEventListener('click', function (e) {
+    e.preventDefault();
+    var url = this.href;
+    leave(function () { location.href = url; });
+  });
   function fail(msg) {
     failed = true;
     statusEl.textContent = 'Error: ' + msg;
@@ -262,9 +318,8 @@
   /* Resolution: 1x (the 480x272 LCD the game was made for) up to 4x. The
    * world view scales with it, so every choice shows and plays the same;
    * only the sharpness differs. Auto takes the largest that the screen
-   * shows at full detail. Remembered; ?scale=N overrides. */
-  var SCALES = [[0, 'Auto'], [1, '480×272'], [2, '960×544'], [3, '1440×816'], [4, '1920×1088']];
-  var resEl = document.getElementById('res');
+   * shows at full detail. Chosen in the game (Rolling Rob's page, which
+   * writes rr-scale and calls rrRestart); ?scale=N overrides. */
   var scaleChoice = 0;
   try { scaleChoice = parseInt(localStorage.getItem('rr-scale') || '0', 10) || 0; } catch (e) {}
   function autoScale() {
@@ -276,21 +331,12 @@
     if (q >= 1 && q <= 4) return q;
     return scaleChoice || autoScale();
   }
-  SCALES.forEach(function (o) {
-    var b = document.createElement('button');
-    b.textContent = o[0] === 0 ? 'Auto (' + SCALES[autoScale()][1] + ')' : o[1];
-    if (o[0] === 1) b.title = 'The LCD the game was made for';
-    if (o[0] === 4) b.title = 'Full HD, like the original web game';
-    b.setAttribute('aria-pressed', String(o[0] === scaleChoice));
-    b.addEventListener('click', function () {
-      scaleChoice = o[0];
-      try { localStorage.setItem('rr-scale', String(o[0])); } catch (e) {}
-      resEl.querySelectorAll('button').forEach(function (x, i) {
-        x.setAttribute('aria-pressed', String(SCALES[i][0] === scaleChoice));
-      });
-    });
-    resEl.appendChild(b);
-  });
+  /* The game's "Restart at this resolution": save, reload, and go straight
+   * back into the game. */
+  window.rrRestart = function () {
+    try { sessionStorage.setItem('rr-autostart', '1'); } catch (e) {}
+    leave(function () { location.reload(); });
+  };
 
   /* Largest size that fits, keeping 480:272. On a plain desktop screen
    * (1 device pixel per CSS pixel) half steps keep the pixels even; on a
@@ -405,7 +451,10 @@
     barEl.parentNode.classList.add('hidden');
     statusEl.textContent = '';
     playBtn.style.display = 'block';
-    playBtn.focus();
+    playBtn.focus({ preventScroll: true });
+    var again = false;
+    try { again = !!sessionStorage.getItem('rr-autostart'); sessionStorage.removeItem('rr-autostart'); } catch (e) {}
+    if (again) start(); /* back from "Restart at this resolution" */
   };
   function start() {
     if (!ready || clicked) return;
@@ -474,6 +523,17 @@
     if (ctx && clicked && !held && !document.hidden && ctx.state !== 'running') ctx.resume();
   }, true);
   playBtn.addEventListener('click', start);
+  /* the whole card starts it (the picture too), once it has loaded */
+  document.getElementById('cardport').addEventListener('click', function (e) {
+    if (!e.target.closest('#reload')) start();
+  });
+  /* after an automatic restart there was no gesture yet: let the next one start the sound */
+  ['keydown', 'mousedown'].forEach(function (t) {
+    window.addEventListener(t, function () {
+      var ctx = Module.SDL2 && Module.SDL2.audioContext;
+      if (ctx && clicked && !held && !document.hidden && ctx.state === 'suspended') ctx.resume();
+    }, true);
+  });
   window.addEventListener('keydown', function (e) {
     if (!clicked && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); start(); }
   });
